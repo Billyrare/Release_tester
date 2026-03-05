@@ -1,0 +1,5 @@
+# .gitignore
+.env
+logs/
+api_tester.exe
+go.sum
