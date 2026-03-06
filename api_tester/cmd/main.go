@@ -6,12 +6,16 @@ import (
 
 	"api_tester/config"
 	"api_tester/internal/api"
+	"api_tester/internal/db"
 	"api_tester/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+
+	db.InitDB()
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Ошибка загрузки конфы: %v", err)
@@ -24,6 +28,7 @@ func main() {
 	}
 
 	r := gin.Default()
+	r.SetTrustedProxies(nil)
 
 	// Инициал сервис и хендлер для маркировки
 	markingService := service.NewMarkingService(cfg)
@@ -40,7 +45,8 @@ func main() {
 		markingGroup.GET("/codes", markingHandler.GetCodes)                 // получение кодов по заказу
 		markingGroup.GET("/sub-orders", markingHandler.GetSubOrders)        // получение информации о выгрузках заказов
 		markingGroup.POST("/utilisation", markingHandler.ReportUtilisation) // utilisation endpoint
-
+		markingGroup.POST("/aggregation", markingHandler.ReportAggregation)
+		markingGroup.GET("/generate-sscc", markingHandler.GenerateSSCC) // Генерация SSCC для тестов
 	}
 
 	r.GET("/ping", func(c *gin.Context) {
@@ -49,10 +55,12 @@ func main() {
 		})
 	})
 	// server start
+
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
 	log.Printf("Сервер запущен на порту %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Ошибка запуска сервера: %v", err)
 	}
+	// Передаем storage в твой сервис или обработчик
 
 }

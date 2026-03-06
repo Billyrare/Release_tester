@@ -20,7 +20,7 @@ func LoadConfig() (*Config, error) {
 	viper.SetConfigType("env")
 
 	viper.AutomaticEnv()
-	log.Println("--- DEBUG: Пытаемся прочитать .env файл ---") // Временный лог
+	log.Println("--- DEBUG: Попытка прочитать .env файл ---") // Временный лог
 	// if err := viper.ReadInConfig(); err != nil {
 	// 	if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 	// 		log.Println("Файл конфигурации не найнед, используем переменные окружения")

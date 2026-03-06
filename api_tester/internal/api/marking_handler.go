@@ -11,6 +11,7 @@ import (
 
 	"api_tester/internal/models"
 	"api_tester/internal/service" // Импортируем наш сервис
+	"api_tester/internal/util"
 
 	"github.com/gin-gonic/gin"
 )
@@ -175,4 +176,35 @@ func (h *MarkingHandler) ReportUtilisation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, res)
+}
+
+func (h *MarkingHandler) ReportAggregation(c *gin.Context) {
+	var req models.AggregationDocument
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "некорректное тело документа"})
+		return
+	}
+
+	res, err := h.markingService.ReportAggregation(req)
+	if err != nil {
+		log.Printf("ERROR: Ошибка агрегации: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, res)
+}
+
+func (h *MarkingHandler) GenerateSSCC(c *gin.Context) {
+	// Твой ИНН из документации
+	tin := "307797292"
+
+	sscc, err := util.GetNextSSCC(tin)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "не удалось сгенерировать SSCC"})
+		return
+	}
+
+	log.Printf("INFO: Сгенерирован новый транспортный код: %s", sscc)
+	c.JSON(200, gin.H{"sscc": sscc})
 }

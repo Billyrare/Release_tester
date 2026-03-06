@@ -2,7 +2,9 @@
 package service
 
 import (
+	"api_tester/internal/db"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -28,6 +30,8 @@ type MarkingService interface {
 	GetSubOrders(filters map[string]string) (*models.SubOrderListResponse, error)
 
 	ReportUtilisation(productGroup string, data models.UtilisationRequest) (*models.UtilisationResponse, error)
+
+	ReportAggregation(data models.AggregationDocument) (*models.AggregationResponse, error)
 }
 
 // markingService implements MarkingService
@@ -89,6 +93,7 @@ func (s *markingService) GetPublicCodesInfo(codes []string) ([]models.PublicCode
 
 // --- НОВАЯ РЕАЛИЗАЦИЯ: CreateOrder ---
 func (s *markingService) CreateOrder(order models.OrderRequest) (*models.OrderResponse, error) {
+
 	var jsonBody bytes.Buffer
 	encoder := json.NewEncoder(&jsonBody)
 	encoder.SetEscapeHTML(false) // Чтобы спецсимволы в GTIN не кодировались
@@ -138,8 +143,11 @@ func (s *markingService) CreateOrder(order models.OrderRequest) (*models.OrderRe
 		return nil, fmt.Errorf("не удалось разобрать ответ: %w", err)
 	}
 
+	db.LogOperation("ORDER", order.ProductGroup, orderResponse.OrderId, "SUCCESS", fmt.Sprintf("Количество: %d", len(order.Products)))
+
 	log.Printf("INFO: Заказ успешно создан. OrderID: %s", orderResponse.OrderId)
 	return &orderResponse, nil
+
 }
 
 // GetOrders получает список заказов с фильтрами
@@ -305,6 +313,7 @@ func (s *markingService) ReportUtilisation(productGroup string, data models.Util
 	if err != nil {
 		return nil, err
 	}
+
 	defer resp.Body.Close()
 
 	bodyBytes, _ := ioutil.ReadAll(resp.Body)
@@ -317,6 +326,62 @@ func (s *markingService) ReportUtilisation(productGroup string, data models.Util
 		return nil, err
 	}
 
+	db.LogOperation("UTILISATION", productGroup, res.ReportId, "SUCCESS", fmt.Sprintf("Нанесено %d кодов", len(data.Sntins)))
+
 	log.Printf("INFO: Отчет о нанесении принят. ReportID: %s", res.ReportId)
+	return &res, nil
+}
+
+// Добавь "encoding/base64" в импорты
+
+func (s *markingService) ReportAggregation(doc models.AggregationDocument) (*models.AggregationResponse, error) {
+	// 1. Кодируем внутренний документ в JSON
+	docBytes, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка маршалинга документа: %w", err)
+	}
+
+	// 2. Превращаем JSON в Base64
+	encodedDoc := base64.StdEncoding.EncodeToString(docBytes)
+
+	// 3. Формируем финальное тело запроса
+	finalRequest := models.AggregationRequest{
+		DocumentBody: encodedDoc,
+	}
+
+	var jsonBody bytes.Buffer
+	json.NewEncoder(&jsonBody).Encode(finalRequest)
+
+	// URL: https://{server}/public/api/v1/doc/aggregation
+	url := fmt.Sprintf("%s/public/api/v1/doc/aggregation", s.cfg.AslApiURL)
+
+	req, err := http.NewRequest("POST", url, &jsonBody)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.cfg.AslApiToken))
+
+	log.Printf("INFO: Отправка агрегации для %d упаковок", len(doc.AggregationUnits))
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := ioutil.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("ошибка агрегации (Status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var res models.AggregationResponse
+	if err := json.Unmarshal(bodyBytes, &res); err != nil {
+		return nil, err
+	}
+
+	db.LogOperation("AGGREGATION", "N/A", res.DocumentId, "SUCCESS", "Агрегация выполнена успешно")
+
 	return &res, nil
 }
