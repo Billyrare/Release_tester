@@ -61,15 +61,15 @@ func InitDB() {
 	log.Println("INFO: База данных инициализирована (api_tester.db)")
 }
 func LogOperation(opType, group, id, status, details string) {
-	log.Printf("DEBUG: Попытка записи лога: %s, %s, %s", opType, group, id) // ДОБАВЬ ЭТО
+	log.Printf("DEBUG: Попытка записи лога: %s, %s, %s", opType, group, id)
 
 	_, err := DB.Exec(
 		"INSERT INTO operation_logs (operation_type, product_group, external_id, status, details) VALUES (?, ?, ?, ?, ?)",
 		opType, group, id, status, details,
 	)
 	if err != nil {
-		log.Printf("ERROR: Ошибка записи в БД: %v", err) // Если тут ошибка, ты её увидишь в консоли
+		log.Printf("ERROR: Ошибка записи в БД: %v", err)
 	} else {
-		log.Println("DEBUG: Лог успешно записан в БД") // ДОБАВЬ ЭТО
+		log.Println("DEBUG: Лог успешно записан в БД")
 	}
 }

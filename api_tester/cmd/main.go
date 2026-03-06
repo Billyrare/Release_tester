@@ -33,10 +33,24 @@ func main() {
 	// Инициал сервис и хендлер для маркировки
 	markingService := service.NewMarkingService(cfg)
 	markingHandler := api.NewMarkingHandler(markingService)
+	workflowService := service.NewWorkflowService(markingService)
+	workflowHandler := api.NewWorkflowHandler(workflowService)
 
 	v1 := r.Group("/v1")
 	{
 		markingGroup := v1.Group("/marking")
+		// cmd/main.go
+		workflowGroup := v1.Group("/workflow")
+		{
+			// 🚀 ГЛАВНЫЙ ENDPOINT: Пользователь передает ТОЛЬКО gtin, productGroup, quantity
+			workflowGroup.POST("/execute", workflowHandler.ExecuteWorkflow)
+			// Полный workflow с полным OrderRequest (для продвинутых)
+			workflowGroup.POST("/complete", workflowHandler.CompleteWorkflow)
+			// Создание заказа и запуск полного цикла за один запрос
+			workflowGroup.POST("/create-and-run", workflowHandler.CreateOrderAndRunFullCycle)
+			// Запуск полного цикла для уже существующего заказа
+			workflowGroup.POST("/run", workflowHandler.RunFullCycle)
+		}
 		{
 			markingGroup.POST("/public-codes", markingHandler.GetPublicCodesInfo)
 		}

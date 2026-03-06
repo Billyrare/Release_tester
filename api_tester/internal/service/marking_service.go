@@ -269,26 +269,59 @@ func (s *markingService) GetSubOrders(filters map[string]string) (*models.SubOrd
 	}
 	u.RawQuery = q.Encode()
 
-	req, _ := http.NewRequest("GET", u.String(), nil)
+	finalURL := u.String()
+	log.Printf("DEBUG GetSubOrders: URL запроса: %s", finalURL)
+
+	req, err := http.NewRequest("GET", finalURL, nil)
+	if err != nil {
+		log.Printf("ERROR GetSubOrders: Ошибка создания запроса: %v", err)
+		return nil, err
+	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.cfg.AslApiToken))
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		log.Printf("ERROR GetSubOrders: Ошибка HTTP-запроса: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	log.Printf("DEBUG GetSubOrders: HTTP статус: %s", resp.Status)
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("ERROR GetSubOrders: Ошибка чтения тела ответа: %v", err)
+		return nil, err
+	}
+
+	log.Printf("DEBUG GetSubOrders: Тело ответа: %s", string(body))
+
 	var res models.SubOrderListResponse
-	json.Unmarshal(body, &res)
+	if err := json.Unmarshal(body, &res); err != nil {
+		log.Printf("ERROR GetSubOrders: Ошибка разбора JSON: %v", err)
+		log.Printf("ERROR GetSubOrders: Raw body: %s", string(body))
+		return nil, err
+	}
+
+	log.Printf("DEBUG GetSubOrders: Успешно получено %d подзаказов", len(res.SubOrderInfos))
 	return &res, nil
 }
 
 func (s *markingService) ReportUtilisation(productGroup string, data models.UtilisationRequest) (*models.UtilisationResponse, error) {
+	// Corrected: Create a new UtilisationRequest with the correctly formatted dates
+	correctData := models.UtilisationRequest{
+		Sntins:              data.Sntins,
+		BusinessPlaceId:     data.BusinessPlaceId,
+		ManufacturerCountry: data.ManufacturerCountry,
+		ReleaseType:         data.ReleaseType,
+		ProductionDate:      data.ProductionDate, // Assuming this is already in "YYYY-MM-DD" format
+		ExpirationDate:      data.ExpirationDate, // Assuming this is already in "YYYY-MM-DD" format
+	}
+
 	var jsonBody bytes.Buffer
 	encoder := json.NewEncoder(&jsonBody)
 	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(data); err != nil {
+	if err := encoder.Encode(correctData); err != nil {
 		return nil, fmt.Errorf("ошибка кодирования: %w", err)
 	}
 
