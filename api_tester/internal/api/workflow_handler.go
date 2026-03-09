@@ -1,8 +1,10 @@
 package api
 
 import (
+	"api_tester/internal/logger"
 	"api_tester/internal/models"
 	"api_tester/internal/service"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -283,4 +285,59 @@ func (h *WorkflowHandler) ReportAggregation(c *gin.Context) {
 		"status":      "success",
 		"document_id": result.DocumentId,
 	})
+}
+
+// GetLogs - Server-Sent Events (SSE) endpoint для потока логов в реальном времени
+// GET /v1/workflow/logs
+func (h *WorkflowHandler) GetLogs(c *gin.Context) {
+	// Установим заголовки для SSE
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	// Получим логгер
+	logMgr := logger.GetLogger()
+
+	// Подпишемся на логи
+	logChan := logMgr.Subscribe()
+	defer close(logChan)
+
+	// Создаем фlusher для периодической отправки
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Streaming not supported",
+		})
+		return
+	}
+
+	// Отправляем логи по мере их появления
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			// Клиент закрыл соединение
+			return
+		case logEntry := <-logChan:
+			// Отправляем лог в формате SSE
+			logJSON, _ := json.Marshal(logEntry)
+			c.Writer.Write([]byte("data: " + string(logJSON) + "\n\n"))
+			flusher.Flush()
+		}
+	}
+}
+
+// GetLogsHistory - GET /v1/workflow/logs-history - получить все логи (последние N)
+func (h *WorkflowHandler) GetLogsHistory(c *gin.Context) {
+	limitStr := c.DefaultQuery("limit", "50")
+	limit, _ := strconv.Atoi(limitStr)
+
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+
+	logMgr := logger.GetLogger()
+	logs := logMgr.GetLastLogs(limit)
+
+	c.JSON(http.StatusOK, logs)
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"api_tester/internal/db"
 	"api_tester/internal/models"
 	"api_tester/internal/service" // Импортируем наш сервис
 	"api_tester/internal/util"
@@ -207,4 +208,25 @@ func (h *MarkingHandler) GenerateSSCC(c *gin.Context) {
 
 	log.Printf("INFO: Сгенерирован новый транспортный код: %s", sscc)
 	c.JSON(200, gin.H{"sscc": sscc})
+}
+
+// GetHistory возвращает историю операций для фронта
+func (h *MarkingHandler) GetHistory(c *gin.Context) {
+	limit := 50
+
+	// Если передан параметр limit, используем его
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	history, err := db.GetOperationHistory(limit)
+	if err != nil {
+		log.Printf("ERROR: Ошибка получения истории: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "не удалось получить историю"})
+		return
+	}
+
+	c.JSON(http.StatusOK, history)
 }

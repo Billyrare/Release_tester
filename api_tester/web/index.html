@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Тестер</title>
+    <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>API Тестер</h1>
+            <p class="subtitle">Управление маркировкой и отчетами об агрегации</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Левая колонна: Формы -->
+            <div class="forms-section">
+                <!-- Вкладки -->
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('execute')">
+                        Workflow Заказ-Нанесение 
+                    </button>
+                    <button class="tab-btn" onclick="switchTab('aggregation')">
+                        Агрегация
+                    </button>
+                    <button class="tab-btn" onclick="switchTab('complete')">
+                        Полный цикл
+                    </button>
+                </div>
+
+                <!-- Tab 1: Execute Workflow -->
+                <div id="execute" class="tab-content active">
+                    <h2>Workflow Заказ-Нанесение</h2>
+                    <p class="help-text">Создание заказа, сбор кодов и отчет о нанесении</p>
+                    
+                    <form class="form-group">
+                        <label>GTIN:</label>
+                        <input type="text" id="executeGtin" placeholder="GTIN" value="">
+
+                        <label>Группа товара:</label>
+                        <select id="executeGroup">
+                            <option value="" disabled selected>Выбрать тг</option>
+                            <option value="tobacco">tobacco</option>
+                            <option value="water">water</option>
+                            <option value="appliances">appliances</option>
+                        </select>
+
+                        <label>Количество кодов:</label>
+                        <input type="number" id="executeQuantity" placeholder="Количество" value="" min="1">
+
+                        <label>Дней до истечения:</label>
+                        <input type="number" id="executeExpirationDays" placeholder="Стандарт 365" value="365" min="1">
+
+                        <button type="button" onclick="executeWorkflow()">
+                            Запустить
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Tab 2: Aggregation Report -->
+                <div id="aggregation" class="tab-content">
+                    <h2>Агрегация</h2>
+                    <p class="help-text">Подача документа об агрегации маркированных товаров</p>
+
+                    <form class="form-group">
+                        <label>BusinessPlaceId:</label>
+                        <input type="number" id="aggBusinessPlaceId" placeholder="1" value="1" min="1">
+
+                        <label>Количество упаковок:</label>
+                        <input type="number" id="aggPackageCount" placeholder="Количество упаковок" value="" min="1">
+
+                        <label>Коды в упаковке (через запятую):</label>
+                        <textarea id="aggCodes" placeholder="code1, code2, code3" rows="3"></textarea>
+
+                        <label>SSCC родительской упаковки (опционально):</label>
+                        <input type="text" id="aggSerialNumber" placeholder="00000000000000000000">
+
+                        <button type="button" onclick="reportAggregation()">
+                            Подать отчет
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Tab 3: Complete Workflow -->
+                <div id="complete" class="tab-content">
+                    <h2>Полный цикл</h2>
+                    <p class="help-text">С дополнительной конфигурацией</p>
+
+                    <form class="form-group">
+                        <label>GTIN:</label>
+                        <input type="text" id="completeGtin" placeholder="Введите GTIN" value="">
+
+                        <label>Группа товара:</label>
+                        <select id="completeGroup">
+                            <option value="appliances">appliances</option>
+                        </select>
+
+                        <label>Количество кодов:</label>
+                        <input type="number" id="completeQuantity" placeholder="5" value="5" min="1">
+
+                        <label>BusinessPlaceId для заказа:</label>
+                        <input type="number" id="completeBusinessPlaceId" placeholder="1" value="1" min="1">
+
+                        <label>ProductionOrderId (опционально):</label>
+                        <input type="text" id="completeProductionOrderId" placeholder="">
+
+                        <button type="button" onclick="completeWorkflow()">
+                            Запустить
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Правая колонна: Результаты и статус -->
+            <div class="results-section">
+                <div class="result-panel">
+                    <h2>Результат</h2>
+                    <div id="result" class="result-output">
+                        <p class="placeholder">Результаты запросов будут отображаться здесь...</p>
+                    </div>
+                </div>
+
+                <div class="result-panel">
+                    <h2>История</h2>
+                    <button onclick="loadHistory()" class="secondary-btn">Обновить</button>
+                    <div id="history" class="history-list">
+                        <p class="placeholder">История загружается...</p>
+                    </div>
+                </div>
+
+                <div class="status-panel">
+                    <h2>Статус</h2>
+                    <div id="apiStatus" class="status-content">
+                        <p>Проверка соединения...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для ошибок -->
+    <div id="errorModal" class="modal">
+        <div class="modal-content error">
+            <h3>Ошибка</h3>
+            <p id="errorMessage"></p>
+            <button onclick="closeModal()">Закрыть</button>
+        </div>
+    </div>
+
+    <!-- Модальное окно для успеха -->
+    <div id="successModal" class="modal">
+        <div class="modal-content success">
+            <h3>Успешно</h3>
+            <p id="successMessage"></p>
+            <button onclick="closeModal()">Закрыть</button>
+        </div>
+    </div>
+
+    <!-- Загрузочный спиннер -->
+    <div id="loadingSpinner" class="loading-spinner" style="display: none;">
+        <div class="spinner"></div>
+        <p>Обработка...</p>
+    </div>
+
+    <script src="/assets/app.js"></script>
+</body>
+</html>

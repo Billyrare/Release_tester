@@ -31,6 +31,8 @@ type MarkingService interface {
 
 	ReportUtilisation(productGroup string, data models.UtilisationRequest) (*models.UtilisationResponse, error)
 
+	ReportUtilisationInBatches(productGroup string, data models.UtilisationRequest, batchSize int) (*models.UtilisationResponse, error)
+
 	ReportAggregation(data models.AggregationDocument) (*models.AggregationResponse, error)
 }
 
@@ -45,7 +47,7 @@ func NewMarkingService(cfg *config.Config) MarkingService {
 	return &markingService{
 		cfg: cfg,
 		httpClient: &http.Client{
-			Timeout: 15 * time.Second, // Немного увеличим таймаут для заказов
+			Timeout: 60 * time.Second, // Увеличиваем для больших батчей кодов
 		},
 	}
 }
@@ -363,6 +365,56 @@ func (s *markingService) ReportUtilisation(productGroup string, data models.Util
 
 	log.Printf("INFO: Отчет о нанесении принят. ReportID: %s", res.ReportId)
 	return &res, nil
+}
+
+// ReportUtilisationInBatches отправляет коды батчами (по 1000 за раз) для избежания таймаутов
+func (s *markingService) ReportUtilisationInBatches(productGroup string, data models.UtilisationRequest, batchSize int) (*models.UtilisationResponse, error) {
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+
+	totalCodes := len(data.Sntins)
+	if totalCodes == 0 {
+		return nil, fmt.Errorf("нет кодов для отправки")
+	}
+
+	log.Printf("INFO: Начинаем отправку %d кодов батчами по %d кодов", totalCodes, batchSize)
+
+	var lastResponse *models.UtilisationResponse
+
+	// Разбиваем коды на батчи
+	for i := 0; i < totalCodes; i += batchSize {
+		end := i + batchSize
+		if end > totalCodes {
+			end = totalCodes
+		}
+
+		batchCodes := data.Sntins[i:end]
+		batchNum := (i / batchSize) + 1
+		totalBatches := (totalCodes + batchSize - 1) / batchSize
+
+		log.Printf("INFO: Отправка батча %d/%d (%d кодов)...", batchNum, totalBatches, len(batchCodes))
+
+		batchRequest := models.UtilisationRequest{
+			Sntins:              batchCodes,
+			BusinessPlaceId:     data.BusinessPlaceId,
+			ManufacturerCountry: data.ManufacturerCountry,
+			ReleaseType:         data.ReleaseType,
+			ProductionDate:      data.ProductionDate,
+			ExpirationDate:      data.ExpirationDate,
+		}
+
+		resp, err := s.ReportUtilisation(productGroup, batchRequest)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка при отправке батча %d: %w", batchNum, err)
+		}
+
+		log.Printf("INFO: Батч %d/%d успешно отправлен. ReportID: %s", batchNum, totalBatches, resp.ReportId)
+		lastResponse = resp
+	}
+
+	log.Printf("INFO: ✅ Все %d батчей успешно отправлены", (totalCodes+batchSize-1)/batchSize)
+	return lastResponse, nil
 }
 
 // Добавь "encoding/base64" в импорты

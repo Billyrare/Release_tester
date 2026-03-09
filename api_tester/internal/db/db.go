@@ -73,3 +73,47 @@ func LogOperation(opType, group, id, status, details string) {
 		log.Println("DEBUG: Лог успешно записан в БД")
 	}
 }
+
+// GetOperationHistory получает последние операции из логов (для фронта)
+func GetOperationHistory(limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	rows, err := DB.Query(`
+		SELECT id, operation_type, product_group, external_id, status, details, created_at 
+		FROM operation_logs 
+		ORDER BY created_at DESC 
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var history []map[string]interface{}
+
+	for rows.Next() {
+		var id int
+		var opType, group, externalID, status, details, createdAt string
+
+		if err := rows.Scan(&id, &opType, &group, &externalID, &status, &details, &createdAt); err != nil {
+			log.Printf("ERROR: Ошибка сканирования строки: %v", err)
+			continue
+		}
+
+		item := map[string]interface{}{
+			"id":              id,
+			"operation_type":  opType,
+			"product_group":   group,
+			"external_id":     externalID,
+			"status":          status,
+			"details":         details,
+			"created_at":      createdAt,
+		}
+
+		history = append(history, item)
+	}
+
+	return history, nil
+}

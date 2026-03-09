@@ -2,10 +2,10 @@ package service
 
 import (
 	"api_tester/internal/db"
+	"api_tester/internal/logger"
 	"api_tester/internal/models"
 	"api_tester/internal/util"
 	"fmt"
-	"log"
 	"time"
 )
 
@@ -21,7 +21,7 @@ func NewWorkflowService(ms MarkingService) *WorkflowService {
 // Заказ → Выгрузка → Обрезка → Нанесение
 func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quantity int, businessPlaceId int, expirationDays int) (*models.WorkflowResponse, error) {
 	var codesForAggregation []string
-	log.Printf("WORKFLOW: 🚀 Запуск workflow для GTIN %s, группа %s, кол-во %d, expirationDays: %d", gtin, productGroup, quantity, expirationDays)
+	logger.GetLogger().Infof("WORKFLOW: 🚀 Запуск workflow для GTIN %s, группа %s, кол-во %d, expirationDays: %d", gtin, productGroup, quantity, expirationDays)
 
 	// 1. Создаем заказ с ПРАВИЛЬНЫМИ параметрами
 	orderReq := models.OrderRequest{
@@ -39,27 +39,27 @@ func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quan
 		},
 	}
 
-	log.Printf("WORKFLOW: 📦 Создание заказа с %d кодами для GTIN %s", quantity, gtin)
+	logger.GetLogger().Infof("WORKFLOW: 📦 Создание заказа с %d кодами для GTIN %s", quantity, gtin)
 	orderRes, err := w.markingService.CreateOrder(orderReq)
 	if err != nil {
 		db.LogOperation("WORKFLOW", productGroup, "N/A", "ERROR", "Ошибка создания заказа: "+err.Error())
 		return nil, fmt.Errorf("ошибка создания заказа: %w", err)
 	}
 	orderId := orderRes.OrderId
-	log.Printf("WORKFLOW: ✅ Заказ создан: %s", orderId)
+	logger.GetLogger().Infof("WORKFLOW: ✅ Заказ создан: %s", orderId)
 
 	// 2. Ожидание готовности и выгрузка полных кодов (КМ)
-	log.Printf("WORKFLOW: ⏳ Ожидание готовности кодов (~45 сек)...")
+	logger.GetLogger().Infof("WORKFLOW: ⏳ Ожидание готовности кодов (~45 сек)...")
 	fullCodesResponse, err := w.collectCodesWithRetry(orderId, gtin, quantity)
 	if err != nil {
 		db.LogOperation("WORKFLOW", productGroup, orderId, "ERROR", "Ошибка сбора кодов: "+err.Error())
 		return nil, err
 	}
-	log.Printf("WORKFLOW: ✅ Получено %d полных кодов", len(fullCodesResponse.Codes))
+	logger.GetLogger().Infof("WORKFLOW: ✅ Получено %d полных кодов", len(fullCodesResponse.Codes))
 
 	// 3. Подготовка кодов (обрезка)
 	codesForUtilisation := fullCodesResponse.Codes
-	log.Printf("WORKFLOW: 📌 Группа %s. Используем коды как есть", productGroup)
+	logger.GetLogger().Infof("WORKFLOW: 📌 Группа %s. Используем коды как есть", productGroup)
 
 	// 4. Формируем запрос на нанесение (Utilisation)
 	// ProductionDate = вчера (в прошлом)
@@ -70,7 +70,7 @@ func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quan
 
 	prodDateStr := productionDate.Format("2006-01-02T15:04:05.000Z")
 	expDateStr := expirationDate.Format("2006-01-02T15:04:05.000Z")
-	log.Printf("WORKFLOW: 📅 ProductionDate: %s (yesterday), ExpirationDate: %s (today + %d days)", prodDateStr, expDateStr, expirationDays)
+	logger.GetLogger().Infof("WORKFLOW: 📅 ProductionDate: %s (yesterday), ExpirationDate: %s (today + %d days)", prodDateStr, expDateStr, expirationDays)
 
 	utilReq := models.UtilisationRequest{
 		Sntins:              codesForUtilisation,
@@ -81,9 +81,9 @@ func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quan
 		ExpirationDate:      expDateStr,
 	}
 
-	// 5. Отправляем отчет о нанесении
-	log.Printf("WORKFLOW: 📤 Отправка отчета о нанесении для %d кодов...", len(codesForUtilisation))
-	utilRes, err := w.markingService.ReportUtilisation(productGroup, utilReq)
+	// 5. Отправляем отчет о нанесении (батчами)
+	logger.GetLogger().Infof("WORKFLOW: 📤 Отправка отчета о нанесении для %d кодов...", len(codesForUtilisation))
+	utilRes, err := w.markingService.ReportUtilisationInBatches(productGroup, utilReq, 1000)
 	if err != nil {
 		db.LogOperation("WORKFLOW", productGroup, orderId, "ERROR", "Ошибка нанесения: "+err.Error())
 		return nil, fmt.Errorf("ошибка при подаче отчета о нанесении: %w", err)
@@ -92,16 +92,16 @@ func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quan
 	// Обрезаем коды для appliances после нанесения
 
 	if productGroup == "appliances" {
-		log.Printf("WORKFLOW: ✂️  Группа appliances. Обрезаем %d кодов (92 → 31-38 символов) для агрегации...", len(codesForUtilisation))
+		logger.GetLogger().Infof("WORKFLOW: ✂️  Группа appliances. Обрезаем %d кодов (92 → 31-38 символов) для агрегации...", len(codesForUtilisation))
 		codesForAggregation = util.ConvertToKIList(codesForUtilisation)
-		log.Printf("WORKFLOW: ℹ️ Коды для агрегации: %v", codesForAggregation) // Добавлено логирование
+		logger.GetLogger().Infof("WORKFLOW: ℹ️ Коды для агрегации: %v", codesForAggregation) // Добавлено логирование
 	} else {
 		codesForAggregation = codesForUtilisation
 	}
 	if productGroup == "appliances" {
-		log.Printf("WORKFLOW: ℹ️ Коды для агрегации: %v", codesForAggregation) // Добавлено логирование
+		logger.GetLogger().Infof("WORKFLOW: ℹ️ Коды для агрегации: %v", codesForAggregation) // Добавлено логирование
 	}
-	log.Printf("WORKFLOW: ✅✅✅ WORKFLOW УСПЕШНО ЗАВЕРШЕН! ReportID: %s", utilRes.ReportId)
+	logger.GetLogger().Infof("WORKFLOW: ✅✅✅ WORKFLOW УСПЕШНО ЗАВЕРШЕН! ReportID: %s", utilRes.ReportId)
 	return &models.WorkflowResponse{
 		ReportId:            utilRes.ReportId,
 		CodesForAggregation: codesForAggregation,
@@ -112,7 +112,7 @@ func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quan
 func (w *WorkflowService) CompleteWorkflow(orderReq models.OrderRequest, utilizationQuantity int, expirationDays int) (*models.WorkflowResponse, error) {
 	productGroup := orderReq.ProductGroup
 	var codesForAggregation []string
-	log.Printf("WORKFLOW: Запуск полного workflow для группы %s", productGroup)
+	logger.GetLogger().Infof("WORKFLOW: Запуск полного workflow для группы %s", productGroup)
 
 	// 1. Извлекаем GTIN из первого продукта
 	if len(orderReq.Products) == 0 {
@@ -122,32 +122,32 @@ func (w *WorkflowService) CompleteWorkflow(orderReq models.OrderRequest, utiliza
 	quantityForOrder := orderReq.Products[0].Quantity
 
 	// 2. Создаем заказ
-	log.Printf("WORKFLOW: Создание заказа с %d кодами для GTIN %s", quantityForOrder, gtin)
+	logger.GetLogger().Infof("WORKFLOW: Создание заказа с %d кодами для GTIN %s", quantityForOrder, gtin)
 	orderRes, err := w.markingService.CreateOrder(orderReq)
 	if err != nil {
 		db.LogOperation("WORKFLOW", orderReq.ProductGroup, "N/A", "ERROR", "Ошибка создания заказа: "+err.Error())
 		return nil, fmt.Errorf("ошибка создания заказа: %w", err)
 	}
 	orderId := orderRes.OrderId
-	log.Printf("WORKFLOW: ✅ Заказ создан: %s", orderId)
+	logger.GetLogger().Infof("WORKFLOW: ✅ Заказ создан: %s", orderId)
 
 	// 3. Ожидание готовности и выгрузка полных кодов (КМ)
-	log.Printf("WORKFLOW: Ожидание готовности кодов для %s...", orderId)
+	logger.GetLogger().Infof("WORKFLOW: Ожидание готовности кодов для %s...", orderId)
 	fullCodesResponse, err := w.collectCodesWithRetry(orderId, gtin, quantityForOrder)
 
-	log.Printf("WORKFLOW: Получено %d полных кодов", len(fullCodesResponse.Codes))
+	logger.GetLogger().Infof("WORKFLOW: Получено %d полных кодов", len(fullCodesResponse.Codes))
 
 	// 4. Определяем кол-во кодов для нанесения (если не указано, берем все)
 	codesToUse := fullCodesResponse.Codes
 	if utilizationQuantity > 0 && utilizationQuantity < len(fullCodesResponse.Codes) {
 		codesToUse = fullCodesResponse.Codes[:utilizationQuantity]
-		log.Printf("WORKFLOW: Используем %d из %d кодов для нанесения", utilizationQuantity, len(fullCodesResponse.Codes))
+		logger.GetLogger().Infof("WORKFLOW: Используем %d из %d кодов для нанесения", utilizationQuantity, len(fullCodesResponse.Codes))
 	}
 
 	// 5. Подготовка кодов (обрезка для appliances)
 	var codesForUtilisation []string
 	if orderReq.ProductGroup == "appliances" {
-		log.Printf("WORKFLOW: Группа appliances. Обрезаем %d кодов (92 -> 31-38 симв)...", len(codesToUse))
+		logger.GetLogger().Infof("WORKFLOW: Группа appliances. Обрезаем %d кодов (92 -> 31-38 симв)...", len(codesToUse))
 		codesForUtilisation = util.ConvertToKIList(codesToUse)
 	} else {
 		codesForUtilisation = codesToUse
@@ -162,7 +162,7 @@ func (w *WorkflowService) CompleteWorkflow(orderReq models.OrderRequest, utiliza
 
 	prodDateStr := productionDate.Format("2006-01-02T15:04:05.000Z")
 	expDateStr := expirationDate.Format("2006-01-02T15:04:05.000Z")
-	log.Printf("WORKFLOW: 📅 Исправленный формат дат: Prod: %s, Exp: %s", prodDateStr, expDateStr)
+	logger.GetLogger().Infof("WORKFLOW: 📅 Исправленный формат дат: Prod: %s, Exp: %s", prodDateStr, expDateStr)
 
 	utilReq := models.UtilisationRequest{
 		Sntins:              codesForUtilisation,
@@ -173,13 +173,9 @@ func (w *WorkflowService) CompleteWorkflow(orderReq models.OrderRequest, utiliza
 		ExpirationDate:      expDateStr,
 	}
 
-	// 7. Отправляем отчет о нанесении
-	log.Printf("WORKFLOW: Отправка отчета о нанесении для %d кодов...", len(codesForUtilisation))
-	utilRes, err := w.markingService.ReportUtilisation(orderReq.ProductGroup, utilReq)
-	if err != nil {
-		db.LogOperation("WORKFLOW", orderReq.ProductGroup, orderId, "ERROR", "Ошибка нанесения: "+err.Error())
-		return nil, fmt.Errorf("ошибка при подаче отчета о нанесении: %w", err)
-	}
+	// 7. Отправляем отчет о нанесении (батчами)
+	logger.GetLogger().Infof("WORKFLOW: Отправка отчета о нанесении для %d кодов...", len(codesForUtilisation))
+	utilRes, err := w.markingService.ReportUtilisationInBatches(orderReq.ProductGroup, utilReq, 1000)
 	if err != nil {
 		db.LogOperation("WORKFLOW", orderReq.ProductGroup, orderId, "ERROR", "Ошибка нанесения: "+err.Error())
 		return nil, fmt.Errorf("ошибка при подаче отчета о нанесении: %w", err)
@@ -187,9 +183,9 @@ func (w *WorkflowService) CompleteWorkflow(orderReq models.OrderRequest, utiliza
 
 	db.LogOperation("WORKFLOW", orderReq.ProductGroup, orderId, "SUCCESS", fmt.Sprintf("Полный workflow завершен. Нанесено %d кодов. ReportID: %s", len(codesForUtilisation), utilRes.ReportId))
 	if productGroup == "appliances" {
-		log.Printf("WORKFLOW: ℹ️ Коды для агрегации: %v", codesForAggregation) // Добавлено логирование
+		logger.GetLogger().Infof("WORKFLOW: ℹ️ Коды для агрегации: %v", codesForAggregation) // Добавлено логирование
 	}
-	log.Printf("WORKFLOW: ✅ Полный workflow завершен! ReportID: %s", utilRes.ReportId)
+	logger.GetLogger().Infof("WORKFLOW: ✅ Полный workflow завершен! ReportID: %s", utilRes.ReportId)
 	return &models.WorkflowResponse{
 		ReportId:            utilRes.ReportId,
 		CodesForAggregation: codesForAggregation,
@@ -198,7 +194,7 @@ func (w *WorkflowService) CompleteWorkflow(orderReq models.OrderRequest, utiliza
 
 // CreateOrderAndRunCycle - Создает заказ и сразу запускает полный цикл
 func (w *WorkflowService) CreateOrderAndRunCycle(orderReq models.OrderRequest, gtin string, productGroup string, quantity int, businessPlaceId int) (*models.WorkflowResponse, error) {
-	log.Printf("WORKFLOW: Создание заказа и запуск полного цикла для группа %s", productGroup)
+	logger.GetLogger().Infof("WORKFLOW: Создание заказа и запуск полного цикла для группа %s", productGroup)
 
 	// 1. Создаем заказ
 	orderRes, err := w.markingService.CreateOrder(orderReq)
@@ -207,7 +203,7 @@ func (w *WorkflowService) CreateOrderAndRunCycle(orderReq models.OrderRequest, g
 		return nil, fmt.Errorf("ошибка при создании заказа: %w", err)
 	}
 
-	log.Printf("WORKFLOW: Заказ успешно создан с ID: %s", orderRes.OrderId)
+	logger.GetLogger().Infof("WORKFLOW: Заказ успешно создан с ID: %s", orderRes.OrderId)
 
 	// 2. Запускаем полный цикл с новым orderId
 	utilRes, err := w.RunFullCycle(orderRes.OrderId, gtin, productGroup, quantity, businessPlaceId)
@@ -221,13 +217,13 @@ func (w *WorkflowService) CreateOrderAndRunCycle(orderReq models.OrderRequest, g
 		CodesForAggregation: []string{}, // TODO: Заполнить codesForAggregation
 	}
 
-	log.Printf("WORKFLOW: Заказ %s успешно обработан полностью", orderRes.OrderId)
+	logger.GetLogger().Infof("WORKFLOW: Заказ %s успешно обработан полностью", orderRes.OrderId)
 	return workflowResponse, nil
 }
 
 // RunFullCycle - Автоматическая цепочка: Ожидание -> Выгрузка → Обрезка → Нанесение
 func (w *WorkflowService) RunFullCycle(orderId, gtin string, productGroup string, quantity int, businessPlaceId int) (*models.UtilisationResponse, error) {
-	log.Printf("WORKFLOW: Запуск полного цикла для заказа %s", orderId)
+	logger.GetLogger().Infof("WORKFLOW: Запуск полного цикла для заказа %s", orderId)
 
 	// 1. Ожидание готовности и выгружка полных кодов (КМ)
 	fullCodesResponse, err := w.collectCodesWithRetry(orderId, gtin, quantity)
@@ -239,7 +235,7 @@ func (w *WorkflowService) RunFullCycle(orderId, gtin string, productGroup string
 	// 2. Подготовка кодов для нанесения (КИ)
 	var codesForUtilisation []string
 	if productGroup == "appliances" {
-		log.Printf("WORKFLOW: Группа appliances. Обрезаем %d кодов (92 -> 31-38 симв)...", len(fullCodesResponse.Codes))
+		logger.GetLogger().Infof("WORKFLOW: Группа appliances. Обрезаем %d кодов (92 -> 31-38 симв)...", len(fullCodesResponse.Codes))
 		codesForUtilisation = util.ConvertToKIList(fullCodesResponse.Codes)
 	} else {
 		codesForUtilisation = fullCodesResponse.Codes
@@ -254,7 +250,7 @@ func (w *WorkflowService) RunFullCycle(orderId, gtin string, productGroup string
 
 	prodDateStr := productionDate.Format("2006-01-02T15:04:05.000Z")
 	expDateStr := expirationDate.Format("2006-01-02T15:04:05.000Z")
-	log.Printf("WORKFLOW: 📅 ProductionDate: %s (yesterday), ExpirationDate: %s (+365 days)", prodDateStr, expDateStr)
+	logger.GetLogger().Infof("WORKFLOW: 📅 ProductionDate: %s (yesterday), ExpirationDate: %s (+365 days)", prodDateStr, expDateStr)
 
 	utilReq := models.UtilisationRequest{
 		Sntins:              codesForUtilisation,
@@ -265,9 +261,9 @@ func (w *WorkflowService) RunFullCycle(orderId, gtin string, productGroup string
 		ExpirationDate:      expDateStr,
 	}
 
-	// 4. Отправляем отчет о нанесении
-	log.Printf("WORKFLOW: Отправка отчета о нанесении для %d кодов...", len(codesForUtilisation))
-	utilRes, err := w.markingService.ReportUtilisation(productGroup, utilReq)
+	// 4. Отправляем отчет о нанесении (батчами)
+	logger.GetLogger().Infof("WORKFLOW: Отправка отчета о нанесении для %d кодов...", len(codesForUtilisation))
+	utilRes, err := w.markingService.ReportUtilisationInBatches(productGroup, utilReq, 1000)
 	if err != nil {
 		db.LogOperation("WORKFLOW", productGroup, orderId, "ERROR", "Ошибка нанесения: "+err.Error())
 		return nil, fmt.Errorf("ошибка при подаче отчета о нанесении: %w", err)
@@ -275,7 +271,7 @@ func (w *WorkflowService) RunFullCycle(orderId, gtin string, productGroup string
 
 	db.LogOperation("WORKFLOW", productGroup, utilRes.ReportId, "SUCCESS", fmt.Sprintf("Цикл завершен. Нанесено %d кодов", len(codesForUtilisation)))
 
-	log.Printf("WORKFLOW: Цепочка успешно завершена! ReportID: %s", utilRes.ReportId)
+	logger.GetLogger().Infof("WORKFLOW: Цепочка успешно завершена! ReportID: %s", utilRes.ReportId)
 	return utilRes, nil
 }
 
@@ -283,7 +279,7 @@ func (w *WorkflowService) RunFullCycle(orderId, gtin string, productGroup string
 func (w *WorkflowService) collectCodesWithRetry(orderId, gtin string, quantity int) (*models.CodesResponse, error) {
 	maxAttempts := 15 // Ждем до 45 секунд (15 * 3 сек)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		log.Printf("WORKFLOW: Попытка %d: Проверка статуса подзаказа...", attempt)
+		logger.GetLogger().Infof("WORKFLOW: Попытка %d: Проверка статуса подзаказа...", attempt)
 
 		filters := map[string]string{
 			"orderId": orderId,
@@ -292,22 +288,22 @@ func (w *WorkflowService) collectCodesWithRetry(orderId, gtin string, quantity i
 
 		subOrders, err := w.markingService.GetSubOrders(filters)
 		if err != nil {
-			log.Printf("WORKFLOW: ❌ Ошибка GetSubOrders на попытке %d: %v", attempt, err)
+			logger.GetLogger().Infof("WORKFLOW: ❌ Ошибка GetSubOrders на попытке %d: %v", attempt, err)
 			time.Sleep(3 * time.Second)
 			continue
 		}
 
 		// 🔍 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ОТВЕТА
-		log.Printf("WORKFLOW: ℹ️ Ответ от GetSubOrders: количество подзаказов = %d", len(subOrders.SubOrderInfos))
+		logger.GetLogger().Infof("WORKFLOW: ℹ️ Ответ от GetSubOrders: количество подзаказов = %d", len(subOrders.SubOrderInfos))
 
 		if len(subOrders.SubOrderInfos) > 0 {
 			info := subOrders.SubOrderInfos[0]
-			log.Printf("WORKFLOW: ℹ️ Статус буфера: %s, кодов в буфере: %d, требуется: %d", info.BufferStatus, info.LeftInBuffer, quantity)
+			logger.GetLogger().Infof("WORKFLOW: ℹ️ Статус буфера: %s, кодов в буфере: %d, требуется: %d", info.BufferStatus, info.LeftInBuffer, quantity)
 
 			if info.BufferStatus == "ACTIVE" || info.BufferStatus == "READY" || info.BufferStatus == "EXHAUSTED" {
-				log.Printf("WORKFLOW: ✅ Буфер готов! Статус: %s", info.BufferStatus)
+				logger.GetLogger().Infof("WORKFLOW: ✅ Буфер готов! Статус: %s", info.BufferStatus)
 				if info.LeftInBuffer >= quantity {
-					log.Printf("WORKFLOW: ✅ В буфере достаточно кодов (%d). Продолжаем...", info.LeftInBuffer)
+					logger.GetLogger().Infof("WORKFLOW: ✅ В буфере достаточно кодов (%d). Продолжаем...", info.LeftInBuffer)
 					return w.markingService.GetCodes(orderId, gtin, quantity, "")
 				}
 				if info.LeftInBuffer < quantity {
@@ -316,26 +312,26 @@ func (w *WorkflowService) collectCodesWithRetry(orderId, gtin string, quantity i
 
 			}
 			if info.BufferStatus == "REJECTED" {
-				log.Printf("WORKFLOW: ❌ Заказ отклонен: %s", info.RejectionReason)
+				logger.GetLogger().Infof("WORKFLOW: ❌ Заказ отклонен: %s", info.RejectionReason)
 				return nil, fmt.Errorf("заказ отклонен: %s", info.RejectionReason)
 			}
 
 			// Логируем неожиданный статус
-			log.Printf("WORKFLOW: ⏳ Статус буфера: %s (ожидаем READY/EXHAUSTED)", info.BufferStatus)
+			logger.GetLogger().Infof("WORKFLOW: ⏳ Статус буфера: %s (ожидаем READY/EXHAUSTED)", info.BufferStatus)
 		} else {
-			log.Printf("WORKFLOW: ⏳ Подзаказы еще не найдены (попытка %d/15)", attempt)
+			logger.GetLogger().Infof("WORKFLOW: ⏳ Подзаказы еще не найдены (попытка %d/15)", attempt)
 		}
 
 		time.Sleep(3 * time.Second)
 	}
-	log.Printf("WORKFLOW: ❌ Превышено время ожидания готовности заказа после 15 попыток (~45 сек)")
+	logger.GetLogger().Infof("WORKFLOW: ❌ Превышено время ожидания готовности заказа после 15 попыток (~45 сек)")
 	return nil, fmt.Errorf("превышено время ожидания готовности заказа")
 }
 
 // ReportAggregation - Подачи отчета об агрегации маркированных товаров
 // Автоматически кодирует JSON в base64 и отправляет на API
 func (w *WorkflowService) ReportAggregation(doc models.AggregationDocument) (*models.AggregationResponse, error) {
-	log.Printf("WORKFLOW: 📦 Подача отчета об агрегации: %d упаковок, BP=%d", len(doc.AggregationUnits), doc.BusinessPlaceId)
+	logger.GetLogger().Infof("WORKFLOW: 📦 Подача отчета об агрегации: %d упаковок, BP=%d", len(doc.AggregationUnits), doc.BusinessPlaceId)
 
 	// Вызываем MarkingService который сам все кодирует в base64
 	result, err := w.markingService.ReportAggregation(doc)
@@ -345,7 +341,8 @@ func (w *WorkflowService) ReportAggregation(doc models.AggregationDocument) (*mo
 	}
 
 	db.LogOperation("AGGREGATION", "N/A", result.DocumentId, "SUCCESS", fmt.Sprintf("Агрегация зарегистрирована: %d упаковок", len(doc.AggregationUnits)))
-	log.Printf("WORKFLOW: ✅ Агрегация зарегистрирована! DocumentID: %s", result.DocumentId)
+	logger.GetLogger().Infof("WORKFLOW: ✅ Агрегация зарегистрирована! DocumentID: %s", result.DocumentId)
 
 	return result, nil
 }
+
