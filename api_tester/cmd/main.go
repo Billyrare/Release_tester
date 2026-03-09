@@ -50,6 +50,8 @@ func main() {
 			workflowGroup.POST("/create-and-run", workflowHandler.CreateOrderAndRunFullCycle)
 			// Запуск полного цикла для уже существующего заказа
 			workflowGroup.POST("/run", workflowHandler.RunFullCycle)
+			// Подача отчета об агрегации маркированных товаров
+			workflowGroup.POST("/report-aggregation", workflowHandler.ReportAggregation)
 		}
 		{
 			markingGroup.POST("/public-codes", markingHandler.GetPublicCodesInfo)

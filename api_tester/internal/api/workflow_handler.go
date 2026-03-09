@@ -242,3 +242,44 @@ func (h *WorkflowHandler) RunFullCycle(c *gin.Context) {
 		"codes_for_aggregation": workflowResponse.CodesForAggregation,
 	})
 }
+
+// ReportAggregation - Подача отчета об агрегации маркированных товаров
+// POST /v1/workflow/report-aggregation
+// Принимает: aggregationUnits, businessPlaceId, documentDate, productionOrderId (опционально)
+// Возвращает: documentId зарегистрированного отчета
+func (h *WorkflowHandler) ReportAggregation(c *gin.Context) {
+	var doc models.AggregationDocument
+
+	if err := c.ShouldBindJSON(&doc); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "некорректное тело запроса",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Если businessPlaceId не указан, ставим по умолчанию = 1
+	if doc.BusinessPlaceId == 0 {
+		doc.BusinessPlaceId = 1
+	}
+
+	// Если документата не указана, ставим текущее время (ISO 8601)
+	if doc.DocumentDate == "" {
+		doc.DocumentDate = "2006-01-02T15:04:05Z"
+	}
+
+	log.Printf("📦 Получен запрос агрегации: %d упаковок, BP=%d", len(doc.AggregationUnits), doc.BusinessPlaceId)
+
+	result, err := h.workflowService.ReportAggregation(doc)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":      "success",
+		"document_id": result.DocumentId,
+	})
+}

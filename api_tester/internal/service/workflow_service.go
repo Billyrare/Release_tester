@@ -331,3 +331,21 @@ func (w *WorkflowService) collectCodesWithRetry(orderId, gtin string, quantity i
 	log.Printf("WORKFLOW: ❌ Превышено время ожидания готовности заказа после 15 попыток (~45 сек)")
 	return nil, fmt.Errorf("превышено время ожидания готовности заказа")
 }
+
+// ReportAggregation - Подачи отчета об агрегации маркированных товаров
+// Автоматически кодирует JSON в base64 и отправляет на API
+func (w *WorkflowService) ReportAggregation(doc models.AggregationDocument) (*models.AggregationResponse, error) {
+	log.Printf("WORKFLOW: 📦 Подача отчета об агрегации: %d упаковок, BP=%d", len(doc.AggregationUnits), doc.BusinessPlaceId)
+
+	// Вызываем MarkingService который сам все кодирует в base64
+	result, err := w.markingService.ReportAggregation(doc)
+	if err != nil {
+		db.LogOperation("AGGREGATION", "N/A", "N/A", "ERROR", "Ошибка подачи агрегации: "+err.Error())
+		return nil, fmt.Errorf("ошибка при подаче отчета об агрегации: %w", err)
+	}
+
+	db.LogOperation("AGGREGATION", "N/A", result.DocumentId, "SUCCESS", fmt.Sprintf("Агрегация зарегистрирована: %d упаковок", len(doc.AggregationUnits)))
+	log.Printf("WORKFLOW: ✅ Агрегация зарегистрирована! DocumentID: %s", result.DocumentId)
+
+	return result, nil
+}
