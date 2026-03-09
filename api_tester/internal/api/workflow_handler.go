@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -245,7 +246,7 @@ func (h *WorkflowHandler) RunFullCycle(c *gin.Context) {
 
 // ReportAggregation - Подача отчета об агрегации маркированных товаров
 // POST /v1/workflow/report-aggregation
-// Принимает: aggregationUnits, businessPlaceId, documentDate, productionOrderId (опционально)
+// Принимает: aggregationUnits, businessPlaceId, documentDate (опционально), productionOrderId (опционально)
 // Возвращает: documentId зарегистрированного отчета
 func (h *WorkflowHandler) ReportAggregation(c *gin.Context) {
 	var doc models.AggregationDocument
@@ -263,12 +264,12 @@ func (h *WorkflowHandler) ReportAggregation(c *gin.Context) {
 		doc.BusinessPlaceId = 1
 	}
 
-	// Если документата не указана, ставим текущее время (ISO 8601)
+	// Если documentDate не указана или пуста, ставим текущее время UTC (ISO 8601)
 	if doc.DocumentDate == "" {
-		doc.DocumentDate = "2006-01-02T15:04:05Z"
+		doc.DocumentDate = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	log.Printf("📦 Получен запрос агрегации: %d упаковок, BP=%d", len(doc.AggregationUnits), doc.BusinessPlaceId)
+	log.Printf("📦 Получен запрос агрегации: %d упаковок, BP=%d, Date=%s", len(doc.AggregationUnits), doc.BusinessPlaceId, doc.DocumentDate)
 
 	result, err := h.workflowService.ReportAggregation(doc)
 	if err != nil {
