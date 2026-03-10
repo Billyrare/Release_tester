@@ -3,6 +3,7 @@ package service
 
 import (
 	"api_tester/internal/db"
+	"api_tester/internal/metrics"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"api_tester/config"
@@ -52,6 +54,20 @@ func NewMarkingService(cfg *config.Config) MarkingService {
 	}
 }
 
+// doAslRequest выполняет HTTP-запрос к ASL API и записывает метрики
+func (s *markingService) doAslRequest(req *http.Request, endpoint string) (*http.Response, error) {
+	start := time.Now()
+	resp, err := s.httpClient.Do(req)
+	duration := time.Since(start).Seconds()
+	metrics.AslAPIRequestDuration.WithLabelValues(endpoint).Observe(duration)
+	if err != nil {
+		metrics.AslAPIRequestsTotal.WithLabelValues(endpoint, "error").Inc()
+		return nil, err
+	}
+	metrics.AslAPIRequestsTotal.WithLabelValues(endpoint, strconv.Itoa(resp.StatusCode)).Inc()
+	return resp, nil
+}
+
 // GetPublicCodesInfo - получение информации о кодах (уже проверено)
 func (s *markingService) GetPublicCodesInfo(codes []string) ([]models.PublicCodeInfo, error) {
 	requestBody := models.PublicCodesRequest{
@@ -74,7 +90,7 @@ func (s *markingService) GetPublicCodesInfo(codes []string) ([]models.PublicCode
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.cfg.AslApiToken))
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.doAslRequest(req, "/public/api/cod/public/codes")
 	if err != nil {
 		return nil, err
 	}
@@ -117,10 +133,7 @@ func (s *markingService) CreateOrder(order models.OrderRequest) (*models.OrderRe
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.cfg.AslApiToken))
 
 	log.Printf("INFO: Отправка запроса на создание заказа в ASL BELGISI: %s", requestURL)
-	// Опционально: лог тела запроса для отладки заказа
-	// log.Printf("DEBUG: Тело заказа: %s", jsonBody.String())
-
-	resp, err := s.httpClient.Do(req)
+	resp, err := s.doAslRequest(req, "/api/orders")
 	if err != nil {
 		log.Printf("ERROR: Ошибка HTTP-запроса при создании заказа: %v", err)
 		return nil, fmt.Errorf("ошибка HTTP-запроса: %w", err)
@@ -224,6 +237,7 @@ func (s *markingService) GetCodes(orderId, gtin string, quantity int, lastPackId
 	q.Add("orderId", orderId)
 	q.Add("gtin", gtin)
 	q.Add("quantity", fmt.Sprintf("%d", quantity))
+	q.Add("template", "FULL") // Запрашиваем полные коды с криптографией
 	if lastPackId != "" && lastPackId != "0" {
 		q.Add("lastPackId", lastPackId)
 	}

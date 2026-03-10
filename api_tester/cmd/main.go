@@ -8,9 +8,12 @@ import (
 	"api_tester/config"
 	"api_tester/internal/api"
 	"api_tester/internal/db"
+	_ "api_tester/internal/metrics" // Регистрация Prometheus-метрик при старте
+	"api_tester/internal/middleware"
 	"api_tester/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -31,7 +34,14 @@ func main() {
 	r := gin.Default()
 	r.SetTrustedProxies(nil)
 
-	// ========== HEALTH CHECK (ДО СТАТИКИ) ==========
+	// Prometheus HTTP middleware
+	r.Use(middleware.PrometheusMiddleware())
+
+	// ========== PROMETHEUS METRICS ==========
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	log.Println("📊 Prometheus метрики доступны на http://localhost:8080/metrics")
+
+	// ========== HEALTH CHECK ==========
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":  "ok",
@@ -42,11 +52,8 @@ func main() {
 	// ========== ФРОНТЕНД ==========
 	disableUI := os.Getenv("DISABLE_UI") == "true"
 	if !disableUI {
-		// Подаем статические файлы (CSS, JS)
 		r.Static("/assets", "./web")
-		// Подаем главную страницу
 		r.StaticFile("/", "./web/index.html")
-		// Fallback на index.html для SPA всех неизвестных путей
 		r.NoRoute(func(c *gin.Context) {
 			c.File("./web/index.html")
 		})
@@ -55,7 +62,7 @@ func main() {
 		log.Println("⚫ Веб-интерфейс отключен (DISABLE_UI=true)")
 	}
 
-	// Инициал сервис и хендлер для маркировки
+	// Инициализация сервисов
 	markingService := service.NewMarkingService(cfg)
 	markingHandler := api.NewMarkingHandler(markingService)
 	workflowService := service.NewWorkflowService(markingService, cfg)
@@ -64,39 +71,30 @@ func main() {
 	v1 := r.Group("/v1")
 	{
 		markingGroup := v1.Group("/marking")
-		// cmd/main.go
 		workflowGroup := v1.Group("/workflow")
 		{
-			// 🚀 ГЛАВНЫЙ ENDPOINT: Пользователь передает ТОЛЬКО gtin, productGroup, quantity
 			workflowGroup.POST("/execute", workflowHandler.ExecuteWorkflow)
-			// Полный workflow с полным OrderRequest (для продвинутых)
 			workflowGroup.POST("/complete", workflowHandler.CompleteWorkflow)
-			// Создание заказа и запуск полного цикла за один запрос
 			workflowGroup.POST("/create-and-run", workflowHandler.CreateOrderAndRunFullCycle)
-			// Запуск полного цикла для уже существующего заказа
 			workflowGroup.POST("/run", workflowHandler.RunFullCycle)
-			// Подача отчета об агрегации маркированных товаров
 			workflowGroup.POST("/report-aggregation", workflowHandler.ReportAggregation)
-			// Server-Sent Events для логов в реальном времени
 			workflowGroup.GET("/logs", workflowHandler.GetLogs)
-			// История логов
 			workflowGroup.GET("/logs-history", workflowHandler.GetLogsHistory)
-			// Экспортировать коды в CSV/TXT
 			workflowGroup.POST("/export-codes", func(c *gin.Context) {
-				workflowHandler.ExportCodes(c, []string{"code1", "code2", "code3"}) // Пример кодов
+				workflowHandler.ExportCodes(c, []string{"code1", "code2", "code3"})
 			})
 		}
 		{
 			markingGroup.POST("/public-codes", markingHandler.GetPublicCodesInfo)
 		}
-		markingGroup.POST("/orders", markingHandler.CreateOrder)            // создание заказа
-		markingGroup.GET("/orders", markingHandler.GetOrders)               // получение заказов
-		markingGroup.GET("/codes", markingHandler.GetCodes)                 // получение кодов по заказу
-		markingGroup.GET("/sub-orders", markingHandler.GetSubOrders)        // получение информации о выгрузках заказов
-		markingGroup.POST("/utilisation", markingHandler.ReportUtilisation) // utilisation endpoint
+		markingGroup.POST("/orders", markingHandler.CreateOrder)
+		markingGroup.GET("/orders", markingHandler.GetOrders)
+		markingGroup.GET("/codes", markingHandler.GetCodes)
+		markingGroup.GET("/sub-orders", markingHandler.GetSubOrders)
+		markingGroup.POST("/utilisation", markingHandler.ReportUtilisation)
 		markingGroup.POST("/aggregation", markingHandler.ReportAggregation)
-		markingGroup.GET("/generate-sscc", markingHandler.GenerateSSCC) // Генерация SSCC для тестов
-		markingGroup.GET("/history", markingHandler.GetHistory)         // История операций для фронта
+		markingGroup.GET("/generate-sscc", markingHandler.GenerateSSCC)
+		markingGroup.GET("/history", markingHandler.GetHistory)
 	}
 
 	// Файлы кодов
@@ -107,17 +105,12 @@ func main() {
 	}
 
 	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "ping pong show:)",
-		})
+		c.JSON(200, gin.H{"message": "ping pong show:)"})
 	})
-	// server start
 
 	addr := fmt.Sprintf(":%s", cfg.ServerPort)
 	log.Printf("Сервер запущен на порту %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Ошибка запуска сервера: %v", err)
 	}
-	// Передаем storage в твой сервис или обработчик
-
 }

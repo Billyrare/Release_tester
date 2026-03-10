@@ -4,6 +4,7 @@ import (
 	"api_tester/config"
 	"api_tester/internal/db"
 	"api_tester/internal/logger"
+	"api_tester/internal/metrics"
 	"api_tester/internal/models"
 	"api_tester/internal/util"
 	"fmt"
@@ -35,6 +36,7 @@ func NewWorkflowService(ms MarkingService, cfg ...*config.Config) *WorkflowServi
 // Заказ → Выгрузка → Обрезка → Нанесение
 func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quantity int, businessPlaceId int, expirationDays int) (*models.WorkflowResponse, error) {
 	var codesForAggregation []string
+	start := time.Now()
 	logger.GetLogger().Infof("WORKFLOW: 🚀 Запуск workflow для GTIN %s, группа %s, кол-во %d, expirationDays: %d", gtin, productGroup, quantity, expirationDays)
 
 	// 1. Создаем заказ с ПРАВИЛЬНЫМИ параметрами
@@ -71,13 +73,14 @@ func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quan
 	}
 	logger.GetLogger().Infof("WORKFLOW: ✅ Получено %d полных кодов", len(fullCodesResponse.Codes))
 
-	// 3. Подготовка кодов (обрезка для appliances)
+	// 3. Теперь используем полные коды с криптографией для нанесения
+	// ASL API с template=FULL возвращает 92-символьные коды
 	var codesForUtilisation []string
 	if productGroup == "appliances" {
-		logger.GetLogger().Infof("WORKFLOW: ✂️  Группа appliances. Обрезаем %d кодов (92 → 31-38 символов) для нанесения...", len(fullCodesResponse.Codes))
-		codesForUtilisation = util.ConvertToKIList(fullCodesResponse.Codes)
+		logger.GetLogger().Infof("WORKFLOW: 📤 Группа appliances. Используем ПОЛНЫЕ коды (92 символа) с криптографией для нанесения...")
+		codesForUtilisation = fullCodesResponse.Codes // Полные коды с криптографией
 	} else {
-		logger.GetLogger().Infof("WORKFLOW: 📌 Группа %s. Используем коды как есть", productGroup)
+		logger.GetLogger().Infof("WORKFLOW: 📤 Группа %s. Используем коды для нанесения", productGroup)
 		codesForUtilisation = fullCodesResponse.Codes
 	}
 
@@ -103,17 +106,37 @@ func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quan
 
 	// 5. Отправляем отчет о нанесении (батчами)
 	logger.GetLogger().Infof("WORKFLOW: 📤 Отправка отчета о нанесении для %d кодов...", len(codesForUtilisation))
-	utilRes, err := w.markingService.ReportUtilisationInBatches(productGroup, utilReq, 1000)
+	utilRes, err := w.markingService.ReportUtilisationInBatches(productGroup, utilReq, 30000)
 	if err != nil {
 		db.LogOperation("WORKFLOW", productGroup, orderId, "ERROR", "Ошибка нанесения: "+err.Error())
+		metrics.WorkflowExecutionsTotal.WithLabelValues("error", productGroup).Inc()
+		metrics.UtilisationReportsTotal.WithLabelValues("error", productGroup).Inc()
 		return nil, fmt.Errorf("ошибка при подаче отчета о нанесении: %w", err)
 	}
 
-	// Коды для агрегации = те же что и для нанесения (уже обрезаны выше если appliances)
-	codesForAggregation = codesForUtilisation
+	// 6. После успешного нанесения - обрезаем коды для агрегации (92 → 38 для appliances)
+	if productGroup == "appliances" {
+		logger.GetLogger().Infof("WORKFLOW: ✂️  Обрезаем %d кодов для агрегации (92 → 38 символов)...", len(fullCodesResponse.Codes))
+		codesForAggregation = util.ConvertToKIList(fullCodesResponse.Codes)
+		// Сохраняем ОБА формата: полный и укороченный
+		saveCodestoFile(gtin, productGroup+"_full", fullCodesResponse.Codes)
+		saveCodestoFile(gtin, productGroup+"_short", codesForAggregation)
+	} else {
+		codesForAggregation = fullCodesResponse.Codes
+		saveCodestoFile(gtin, productGroup, codesForAggregation)
+	}
 
 	// Сохраняем коды в файл
 	saveCodestoFile(gtin, productGroup, codesForAggregation)
+
+	// Prometheus-метрики
+	duration := time.Since(start).Seconds()
+	metrics.WorkflowDuration.WithLabelValues(productGroup).Observe(duration)
+	metrics.WorkflowExecutionsTotal.WithLabelValues("success", productGroup).Inc()
+	metrics.WorkflowCodesGenerated.WithLabelValues(productGroup).Add(float64(len(codesForAggregation)))
+	metrics.UtilisationReportsTotal.WithLabelValues("success", productGroup).Inc()
+	metrics.UtilisationCodesTotal.WithLabelValues(productGroup).Add(float64(len(codesForUtilisation)))
+	metrics.UtilisationRequestDuration.WithLabelValues(productGroup).Observe(duration)
 
 	logger.GetLogger().Infof("WORKFLOW: ✅ WORKFLOW УСПЕШНО ЗАВЕРШЕН! ReportID: %s, кодов: %d", utilRes.ReportId, len(codesForAggregation))
 	return &models.WorkflowResponse{
@@ -162,12 +185,14 @@ func (w *WorkflowService) RunFullCycle(orderId, gtin string, productGroup string
 		return nil, err
 	}
 
-	// 2. Подготовка кодов для нанесения (КИ)
+	// 2. Теперь используем полные коды с криптографией для нанесения
+	// ASL API с template=FULL возвращает 92-символьные коды
 	var codesForUtilisation []string
 	if productGroup == "appliances" {
-		logger.GetLogger().Infof("WORKFLOW: Группа appliances. Обрезаем %d кодов (92 -> 31-38 симв)...", len(fullCodesResponse.Codes))
-		codesForUtilisation = util.ConvertToKIList(fullCodesResponse.Codes)
+		logger.GetLogger().Infof("WORKFLOW: 📤 Группа appliances. Используем ПОЛНЫЕ коды (92 символа) с криптографией для нанесения...")
+		codesForUtilisation = fullCodesResponse.Codes // Полные коды с криптографией
 	} else {
+		logger.GetLogger().Infof("WORKFLOW: 📤 Группа %s. Используем коды для нанесения", productGroup)
 		codesForUtilisation = fullCodesResponse.Codes
 	}
 
@@ -219,9 +244,10 @@ func (w *WorkflowService) collectCodesWithRetry(orderId, gtin string, quantity i
 		subOrders, err := w.markingService.GetSubOrders(filters)
 		if err != nil {
 			logger.GetLogger().Infof("WORKFLOW: ❌ Ошибка GetSubOrders на попытке %d: %v", attempt, err)
-			time.Sleep(3 * time.Second)
+			time.Sleep(time.Duration(w.retryDelaySec) * time.Second)
 			continue
 		}
+		metrics.WorkflowRetryAttempts.WithLabelValues("unknown").Inc()
 
 		// 🔍 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ОТВЕТА
 		logger.GetLogger().Infof("WORKFLOW: ℹ️ Ответ от GetSubOrders: количество подзаказов = %d", len(subOrders.SubOrderInfos))
@@ -262,15 +288,20 @@ func (w *WorkflowService) collectCodesWithRetry(orderId, gtin string, quantity i
 // Автоматически кодирует JSON в base64 и отправляет на API
 func (w *WorkflowService) ReportAggregation(doc models.AggregationDocument) (*models.AggregationResponse, error) {
 	logger.GetLogger().Infof("WORKFLOW: �� Подача отчета об агрегации: %d упаковок, BP=%d", len(doc.AggregationUnits), doc.BusinessPlaceId)
+	start := time.Now() // Для метрик
 
 	// Вызываем MarkingService который сам все кодирует в base64
 	result, err := w.markingService.ReportAggregation(doc)
+	duration := time.Since(start).Seconds()
 	if err != nil {
 		db.LogOperation("AGGREGATION", "N/A", "N/A", "ERROR", "Ошибка подачи агрегации: "+err.Error())
+		metrics.AggregationReportsTotal.WithLabelValues("error").Inc()
 		return nil, fmt.Errorf("ошибка при подаче отчета об агрегации: %w", err)
 	}
 
 	db.LogOperation("AGGREGATION", "N/A", result.DocumentId, "SUCCESS", fmt.Sprintf("Агрегация зарегистрирована: %d упаковок", len(doc.AggregationUnits)))
+	metrics.AggregationReportsTotal.WithLabelValues("success").Inc()
+	metrics.AggregationDuration.Observe(duration)
 	logger.GetLogger().Infof("WORKFLOW: ✅ Агрегация зарегистрирована! DocumentID: %s", result.DocumentId)
 	return result, nil
 }
@@ -293,6 +324,8 @@ func saveCodestoFile(gtin, productGroup string, codes []string) {
 		logger.GetLogger().Infof("WORKFLOW: ⚠️ Не удалось сохранить коды в файл: %v", err)
 		return
 	}
+	// Записываем метрику о сохранённых кодах
+	metrics.CodesSavedTotal.WithLabelValues(productGroup).Add(float64(len(codes)))
 	logger.GetLogger().Infof("WORKFLOW: 💾 Коды сохранены в файл: %s (%d кодов)", filename, len(codes))
 }
 
@@ -332,12 +365,14 @@ func (w *WorkflowService) CompleteWorkflow(orderReq models.OrderRequest, utiliza
 		logger.GetLogger().Infof("WORKFLOW: Используем %d из %d кодов для нанесения", utilizationQuantity, len(fullCodesResponse.Codes))
 	}
 
-	// 5. Подготовка кодов (обрезка для appliances)
+	// 5. Теперь используем полные коды с криптографией для нанесения
+	// ASL API с template=FULL возвращает 92-символьные коды
 	var codesForUtilisation []string
 	if orderReq.ProductGroup == "appliances" {
-		logger.GetLogger().Infof("WORKFLOW: Группа appliances. Обрезаем %d кодов (92 -> 31-38 симв)...", len(codesToUse))
-		codesForUtilisation = util.ConvertToKIList(codesToUse)
+		logger.GetLogger().Infof("WORKFLOW: 📤 Группа appliances. Используем ПОЛНЫЕ коды (92 символа) с криптографией для нанесения...")
+		codesForUtilisation = codesToUse // Полные коды с криптографией
 	} else {
+		logger.GetLogger().Infof("WORKFLOW: 📤 Группа %s. Используем коды для нанесения", orderReq.ProductGroup)
 		codesForUtilisation = codesToUse
 	}
 
