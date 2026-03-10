@@ -58,7 +58,7 @@ func main() {
 	// Инициал сервис и хендлер для маркировки
 	markingService := service.NewMarkingService(cfg)
 	markingHandler := api.NewMarkingHandler(markingService)
-	workflowService := service.NewWorkflowService(markingService)
+	workflowService := service.NewWorkflowService(markingService, cfg)
 	workflowHandler := api.NewWorkflowHandler(workflowService)
 
 	v1 := r.Group("/v1")
@@ -81,6 +81,10 @@ func main() {
 			workflowGroup.GET("/logs", workflowHandler.GetLogs)
 			// История логов
 			workflowGroup.GET("/logs-history", workflowHandler.GetLogsHistory)
+			// Экспортировать коды в CSV/TXT
+			workflowGroup.POST("/export-codes", func(c *gin.Context) {
+				workflowHandler.ExportCodes(c, []string{"code1", "code2", "code3"}) // Пример кодов
+			})
 		}
 		{
 			markingGroup.POST("/public-codes", markingHandler.GetPublicCodesInfo)
@@ -93,6 +97,13 @@ func main() {
 		markingGroup.POST("/aggregation", markingHandler.ReportAggregation)
 		markingGroup.GET("/generate-sscc", markingHandler.GenerateSSCC) // Генерация SSCC для тестов
 		markingGroup.GET("/history", markingHandler.GetHistory)         // История операций для фронта
+	}
+
+	// Файлы кодов
+	codesGroup := v1.Group("/codes")
+	{
+		codesGroup.GET("/files", api.ListCodeFiles)
+		codesGroup.GET("/files/:filename", api.DownloadCodeFile)
 	}
 
 	r.GET("/ping", func(c *gin.Context) {

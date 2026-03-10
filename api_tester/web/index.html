@@ -11,6 +11,7 @@
         <header>
             <h1>API Тестер</h1>
             <p class="subtitle">Управление маркировкой и отчетами об агрегации</p>
+            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">🌙 Тёмная тема</button>
         </header>
 
         <div class="main-content">
@@ -18,13 +19,13 @@
             <div class="forms-section">
                 <!-- Вкладки -->
                 <div class="tabs">
-                    <button class="tab-btn active" onclick="switchTab('execute')">
+                    <button class="tab-btn active" onclick="switchTab('execute', event)">
                         Workflow Заказ-Нанесение 
                     </button>
-                    <button class="tab-btn" onclick="switchTab('aggregation')">
+                    <button class="tab-btn" onclick="switchTab('aggregation', event)">
                         Агрегация
                     </button>
-                    <button class="tab-btn" onclick="switchTab('complete')">
+                    <button class="tab-btn" onclick="switchTab('complete', event)">
                         Полный цикл
                     </button>
                 </div>
@@ -119,11 +120,26 @@
                     <div id="result" class="result-output">
                         <p class="placeholder">Результаты запросов будут отображаться здесь...</p>
                     </div>
+                    <div id="downloadCodesBtn" style="display:none; margin-top:8px;">
+                        <button class="secondary-btn" onclick="downloadCodesFromResult()">💾 Скачать коды (.txt)</button>
+                    </div>
+                </div>
+
+                <div class="result-panel">
+                    <h2>📁 Сохранённые файлы кодов</h2>
+                    <button onclick="loadCodeFiles()" class="secondary-btn">Обновить</button>
+                    <div id="codeFiles" class="history-list">
+                        <p class="placeholder">Загрузка...</p>
+                    </div>
                 </div>
 
                 <div class="result-panel">
                     <h2>История</h2>
-                    <button onclick="loadHistory()" class="secondary-btn">Обновить</button>
+                    <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+                        <button onclick="loadHistory()" class="secondary-btn" style="margin-bottom:0;">Обновить</button>
+                        <input type="text" id="historyFilter" placeholder="Поиск..." oninput="filterHistory()"
+                            style="flex:1; padding:6px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); font-size:0.85em;">
+                    </div>
                     <div id="history" class="history-list">
                         <p class="placeholder">История загружается...</p>
                     </div>
@@ -157,10 +173,16 @@
         </div>
     </div>
 
-    <!-- Загрузочный спиннер -->
+    <!-- Загрузочный спиннер с прогрессом шагов -->
     <div id="loadingSpinner" class="loading-spinner" style="display: none;">
         <div class="spinner"></div>
-        <p>Обработка...</p>
+        <p id="loadingText">Обработка...</p>
+        <div id="workflowSteps" class="workflow-steps" style="display:none;">
+            <div class="step" id="step-order">📋 Создание заказа...</div>
+            <div class="step" id="step-wait">⏳ Ожидание кодов...</div>
+            <div class="step" id="step-utilisation">📤 Подача нанесения...</div>
+            <div class="step" id="step-done">✅ Готово!</div>
+        </div>
     </div>
 
     <script src="/assets/app.js"></script>

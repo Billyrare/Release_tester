@@ -5,6 +5,7 @@ import (
 	"api_tester/internal/models"
 	"api_tester/internal/service"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -340,4 +341,43 @@ func (h *WorkflowHandler) GetLogsHistory(c *gin.Context) {
 	logs := logMgr.GetLastLogs(limit)
 
 	c.JSON(http.StatusOK, logs)
+}
+
+// ExportCodes - POST /v1/workflow/export-codes - экспортировать коды в CSV/TXT
+// Body: { "codes": [...] }
+func (h *WorkflowHandler) ExportCodes(c *gin.Context, codes []string) {
+	var req struct {
+		Format string `json:"format"` // "csv" или "txt" (по умолчанию "txt")
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// Обработка ошибки привязки JSON (если необходимо)
+		fmt.Println("Ошибка привязки JSON:", err)
+		req.Format = "txt" // Устанавливаем значение по умолчанию
+	}
+
+	// Если format не указан, используем txt
+	if req.Format == "" {
+		req.Format = "txt"
+	}
+
+	// Формируем контент - каждый код на отдельной строке
+	content := ""
+	for i, code := range codes {
+		content += code
+		if i < len(codes)-1 {
+			content += "\n"
+		}
+	}
+
+	// Устанавливаем заголовки для скачивания
+	if req.Format == "csv" {
+		c.Header("Content-Type", "text/csv; charset=utf-8")
+		c.Header("Content-Disposition", `attachment; filename="codes.csv"`)
+	} else {
+		c.Header("Content-Type", "text/plain; charset=utf-8")
+		c.Header("Content-Disposition", `attachment; filename="codes.txt"`)
+	}
+
+	c.String(http.StatusOK, content)
 }

@@ -8,10 +8,12 @@ import (
 )
 
 type Config struct {
-	AppEnv      string `mapstructure:"APP_ENV"`
-	ServerPort  string `mapstructure:"SERVER_PORT"`
-	AslApiURL   string `mapstructure:"ASL_API_URL"`
-	AslApiToken string `mapstructure:"ASL_API_TOKEN"`
+	AppEnv            string `mapstructure:"APP_ENV"`
+	ServerPort        string `mapstructure:"SERVER_PORT"`
+	AslApiURL         string `mapstructure:"ASL_API_URL"`
+	AslApiToken       string `mapstructure:"ASL_API_TOKEN"`
+	MaxRetryAttempts  int    `mapstructure:"MAX_RETRY_ATTEMPTS"`
+	RetryDelaySeconds int    `mapstructure:"RETRY_DELAY_SECONDS"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -70,6 +72,12 @@ func LoadConfig() (*Config, error) {
 	if cfg.AppEnv == "" {
 		cfg.AppEnv = "development"
 		log.Println("APP_ENV не указан, используем режим разработки")
+	}
+	if cfg.MaxRetryAttempts == 0 {
+		cfg.MaxRetryAttempts = 15
+	}
+	if cfg.RetryDelaySeconds == 0 {
+		cfg.RetryDelaySeconds = 3
 	}
 
 	return &cfg, nil

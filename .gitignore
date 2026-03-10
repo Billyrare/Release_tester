@@ -5,3 +5,5 @@ api_tester.exe
 go.sum
 sscc_counter.txt
 api_tester.db
+api_tester/codes/
+main.exe
