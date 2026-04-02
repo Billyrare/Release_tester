@@ -95,6 +95,7 @@ func main() {
 		markingGroup.POST("/aggregation", markingHandler.ReportAggregation)
 		markingGroup.GET("/generate-sscc", markingHandler.GenerateSSCC)
 		markingGroup.GET("/history", markingHandler.GetHistory)
+		markingGroup.GET("/product-cards", markingHandler.GetProductCards)
 	}
 
 	// Файлы кодов

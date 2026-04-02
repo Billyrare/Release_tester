@@ -36,6 +36,9 @@ type MarkingService interface {
 	ReportUtilisationInBatches(productGroup string, data models.UtilisationRequest, batchSize int) (*models.UtilisationResponse, error)
 
 	ReportAggregation(data models.AggregationDocument) (*models.AggregationResponse, error)
+
+	// Получение списка карточек товаров
+	GetProductCards(productGroup string) ([]models.ProductCard, error)
 }
 
 // markingService implements MarkingService
@@ -483,4 +486,65 @@ func (s *markingService) ReportAggregation(doc models.AggregationDocument) (*mod
 	db.LogOperation("AGGREGATION", "N/A", res.DocumentId, "SUCCESS", "Агрегация выполнена успешно")
 
 	return &res, nil
+}
+
+// GetProductCards получает список карточек товаров из реестра продукции
+func (s *markingService) GetProductCards(productGroup string) ([]models.ProductCard, error) {
+	if productGroup == "" {
+		return nil, fmt.Errorf("productGroup обязателен")
+	}
+
+	// Формируем URL для запроса к публичному API
+	baseURL := s.cfg.AslApiURL
+	if baseURL == "" {
+		baseURL = "https://ismp.crpt.ru/api/v3"
+	}
+
+	// Используем публичный API
+	publicURL := baseURL + "/public/api/v1/product-registry/product"
+
+	params := url.Values{}
+	params.Add("productGroup", productGroup)
+	// Фильтруем только PUBLISHED карточки
+	params.Add("status", "PUBLISHED")
+
+	fullURL := publicURL + "?" + params.Encode()
+	log.Printf("INFO: Запрос карточек товаров: %s", fullURL)
+
+	req, err := http.NewRequest("GET", fullURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка создания запроса: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
+
+	// Добавляем токен
+	if s.cfg.AslApiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.cfg.AslApiToken)
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка запроса: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := ioutil.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("ERROR: Ошибка получения карточек товаров (Status %d): %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("ошибка API (Status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Парсим ответ
+	var cards []models.ProductCard
+	if err := json.Unmarshal(bodyBytes, &cards); err != nil {
+		log.Printf("ERROR: Ошибка парсинга карточек: %v", err)
+		log.Printf("DEBUG: Тело ответа: %s", string(bodyBytes))
+		return nil, fmt.Errorf("ошибка парсинга ответа: %v", err)
+	}
+
+	log.Printf("INFO: Получено %d карточек товаров для группы %s", len(cards), productGroup)
+
+	return cards, nil
 }

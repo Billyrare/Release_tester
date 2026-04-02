@@ -106,7 +106,7 @@ func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quan
 
 	// 5. Отправляем отчет о нанесении (батчами)
 	logger.GetLogger().Infof("WORKFLOW: 📤 Отправка отчета о нанесении для %d кодов...", len(codesForUtilisation))
-	utilRes, err := w.markingService.ReportUtilisationInBatches(productGroup, utilReq, 30000)
+	utilRes, err := w.markingService.ReportUtilisationInBatches(productGroup, utilReq, 1000)
 	if err != nil {
 		db.LogOperation("WORKFLOW", productGroup, orderId, "ERROR", "Ошибка нанесения: "+err.Error())
 		metrics.WorkflowExecutionsTotal.WithLabelValues("error", productGroup).Inc()

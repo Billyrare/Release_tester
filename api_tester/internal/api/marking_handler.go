@@ -210,6 +210,24 @@ func (h *MarkingHandler) GenerateSSCC(c *gin.Context) {
 	c.JSON(200, gin.H{"sscc": sscc})
 }
 
+// GetProductCards возвращает список карточек товаров по товарной группе
+func (h *MarkingHandler) GetProductCards(c *gin.Context) {
+	productGroup := c.Query("productGroup")
+	if productGroup == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "параметр productGroup обязателен"})
+		return
+	}
+
+	cards, err := h.markingService.GetProductCards(productGroup)
+	if err != nil {
+		log.Printf("ERROR: Ошибка получения карточек товаров: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"cards": cards})
+}
+
 // GetHistory возвращает историю операций для фронта
 func (h *MarkingHandler) GetHistory(c *gin.Context) {
 	limit := 50

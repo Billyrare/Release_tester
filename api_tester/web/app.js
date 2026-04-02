@@ -35,6 +35,284 @@ function switchTab(tabName, evt) {
     (evt ? evt.target : event.target).classList.add('active');
 }
 
+// ========== ЗАГРУЗКА GTIN ПРИ ВЫБОРЕ ТОВАРНОЙ ГРУППЫ ==========
+let _cachedProductCards = {};
+
+async function loadProductCards(productGroup) {
+    if (!productGroup) {
+        return [];
+    }
+    
+    // Проверяем кэш
+    if (_cachedProductCards[productGroup]) {
+        return _cachedProductCards[productGroup];
+    }
+    
+    try {
+        const response = await fetch(`${API_HOST}/v1/marking/product-cards?productGroup=${productGroup}`);
+        if (!response.ok) {
+            console.error('Ошибка загрузки карточек:', response.status);
+            return [];
+        }
+        const data = await response.json();
+        const cards = data.cards || [];
+        _cachedProductCards[productGroup] = cards;
+        return cards;
+    } catch (error) {
+        console.error('Ошибка загрузки карточек товаров:', error);
+        return [];
+    }
+}
+
+function onProductGroupChange(selectElement) {
+    const productGroup = selectElement.value;
+    const gtinSelect = document.getElementById('orderGtin');
+    
+    if (!gtinSelect) return;
+    
+    // Очищаем текущий список
+    gtinSelect.innerHTML = '<option value="">-- Выберите GTIN --</option>';
+    
+    if (!productGroup) {
+        return;
+    }
+    
+    // Показываем индикатор загрузки
+    gtinSelect.innerHTML = '<option value="">Загрузка...</option>';
+    
+    // Загружаем карточки
+    loadProductCards(productGroup).then(cards => {
+        gtinSelect.innerHTML = '<option value="">-- Выберите GTIN --</option>';
+        
+        if (cards.length === 0) {
+            gtinSelect.innerHTML += '<option value="" disabled>Нет доступных карточек</option>';
+            return;
+        }
+        
+        cards.forEach(card => {
+            const option = document.createElement('option');
+            option.value = card.gtin;
+            
+            // Формируем краткое описание
+            let description = card.gtin;
+            if (card.productName && card.productName.ru) {
+                description = card.productName.ru.substring(0, 60);
+                if (card.productName.ru.length > 60) description += '...';
+            } else if (card.productName && card.productName.en) {
+                description = card.productName.en.substring(0, 60);
+                if (card.productName.en.length > 60) description += '...';
+            }
+            
+            option.textContent = `${card.gtin} - ${description}`;
+            gtinSelect.appendChild(option);
+        });
+    });
+}
+
+// Для workflow вкладок (execute, complete)
+function onProductGroupChangeForWorkflow(selectElement, workflowType) {
+    const productGroup = selectElement.value;
+    const gtinSelect = document.getElementById(workflowType + 'Gtin');
+    
+    if (!gtinSelect) return;
+    
+    // Очищаем текущий список
+    gtinSelect.innerHTML = '<option value="">-- Выберите GTIN --</option>';
+    
+    if (!productGroup) {
+        return;
+    }
+    
+    // Показываем индикатор загрузки
+    gtinSelect.innerHTML = '<option value="">Загрузка...</option>';
+    
+    // Загружаем карточки
+    loadProductCards(productGroup).then(cards => {
+        gtinSelect.innerHTML = '<option value="">-- Выберите GTIN --</option>';
+        
+        if (cards.length === 0) {
+            gtinSelect.innerHTML += '<option value="" disabled>Нет доступных карточек</option>';
+            return;
+        }
+        
+        cards.forEach(card => {
+            const option = document.createElement('option');
+            option.value = card.gtin;
+            
+            // Формируем краткое описание
+            let description = card.gtin;
+            if (card.productName && card.productName.ru) {
+                description = card.productName.ru.substring(0, 60);
+                if (card.productName.ru.length > 60) description += '...';
+            } else if (card.productName && card.productName.en) {
+                description = card.productName.en.substring(0, 60);
+                if (card.productName.en.length > 60) description += '...';
+            }
+            
+            option.textContent = `${card.gtin} - ${description}`;
+            gtinSelect.appendChild(option);
+        });
+    });
+}
+
+// Глобальная переменная для хранения кодов из файла
+let _loadedCodesFromFile = null;
+
+// Загрузка кодов из файла для агрегации
+function loadCodesFromFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const content = e.target.result;
+        // Сохраняем коды в память, НЕ показываем в поле
+        _loadedCodesFromFile = content;
+        // Показываем только количество загруженных кодов
+        const lines = content.split(/\n/).filter(l => l.trim().length > 0);
+        alert(`Загружено ${lines.length} кодов из файла`);
+    };
+    reader.onerror = function() {
+        showError('Ошибка чтения файла');
+    };
+    reader.readAsText(file);
+}
+
+// ========== ЗАКАЗ КОДОВ (Создание заказа + проверка статуса) ==========
+async function createOrderAndCheck() {
+    const productGroup = document.getElementById('orderGroup').value;
+    const businessPlaceId = parseInt(document.getElementById('orderBusinessPlaceId').value);
+    const releaseMethodType = document.getElementById('orderReleaseMethodType').value;
+    const isPaid = document.getElementById('orderIsPaid').value === 'true';
+    const gtin = document.getElementById('orderGtin').value;
+    const quantity = parseInt(document.getElementById('orderQuantity').value);
+    const serialNumberType = document.getElementById('orderSerialNumberType').value;
+    const cisType = document.getElementById('orderCisType').value;
+    const expirationDays = parseInt(document.getElementById('orderExpirationDays').value);
+
+    if (!productGroup || !gtin || !quantity) {
+        showError('Заполните обязательные поля: Группа товара, GTIN, Количество');
+        return;
+    }
+
+    const payload = {
+        productGroup,
+        businessPlaceId: businessPlaceId || 1,
+        releaseMethodType,
+        isPaid,
+        products: [
+            {
+                gtin,
+                quantity,
+                serialNumberType,
+                cisType
+            }
+        ],
+        expirationDays: expirationDays || 365
+    };
+
+    try {
+        showLoading(true);
+        
+        // Шаг 1: Создаём заказ
+        const createResponse = await fetch(`${API_HOST}/v1/marking/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        const createData = await createResponse.json();
+        
+        if (!createResponse.ok) {
+            showLoading(false);
+            showError(`Ошибка создания заказа: ${createData.error || createResponse.statusText}`);
+            showResult('=== СОЗДАНИЕ ЗАКАЗА ===\n' + JSON.stringify(createData, null, 2), 'error');
+            return;
+        }
+        
+        // Получаем ID заказа
+        const orderId = createData.orderId || createData.order_id || createData.id;
+        if (!orderId) {
+            showLoading(false);
+            showError('Не удалось получить ID заказа из ответа');
+            showResult('=== СОЗДАНИЕ ЗАКАЗА ===\n' + JSON.stringify(createData, null, 2), 'error');
+            return;
+        }
+        
+        // // Шаг 2: Проверяем статус заказа
+        // const statusResponse = await fetch(`${API_HOST}/v1/marking/orders?orderId=${orderId}`);
+        // const statusData = await statusResponse.json();
+        
+        // showLoading(false);
+        
+        // // Формируем результат
+        // let resultText = '=== СОЗДАНИЕ ЗАКАЗА ===\n';
+        // resultText += JSON.stringify(createData, null, 2) + '\n\n';
+        // resultText += '=== ПРОВЕРКА СТАТУСА ЗАКАЗА ===\n';
+        // resultText += 'OrderId: ' + orderId + '\n';
+        // resultText += JSON.stringify(statusData, null, 2);
+        // После получения orderId:
+const panel = document.getElementById('orderStatusPanel');
+const liveDiv = document.getElementById('orderStatusLive');
+panel.style.display = 'block';
+liveDiv.innerHTML = '<p>Ожидание статуса...</p>';
+
+window._orderPollInterval = setInterval(async () => {
+    try {
+        const res = await fetch(`${API_HOST}/v1/marking/sub-orders?orderId=${orderId}&gtin=${gtin}`);
+        if (!res.ok) {
+            liveDiv.innerHTML += `<p style="color:red;">Ошибка HTTP: ${res.status}</p>`;
+            return;
+        }
+        const data = await res.json();
+        console.log('SubOrders response:', data);
+
+        if (data.error) {
+            liveDiv.innerHTML = `<p style="color:red;">Ошибка API: ${data.error}</p>`;
+            clearInterval(window._orderPollInterval);
+            return;
+        }
+
+        const info = data.subOrderInfos?.[0];
+        if (info) {
+            liveDiv.innerHTML = `
+                <p>Статус буфера: <b>${info.bufferStatus}</b></p>
+                <p>Кодов в буфере: ${info.leftInBuffer}</p>
+                <p>Заказано: ${quantity}</p>
+            `;
+            if (['READY', 'EXHAUSTED', 'ACTIVE'].includes(info.bufferStatus)) {
+                clearInterval(window._orderPollInterval);
+                liveDiv.innerHTML += `<p style="color:green;"><b>✅ Коды готовы!</b></p>`;
+            }
+            if (info.bufferStatus === 'REJECTED') {
+                clearInterval(window._orderPollInterval);
+                liveDiv.innerHTML += `<p style="color:red;"><b>❌ Заказ отклонен: ${info.rejectionReason || 'нет причины'}</b></p>`;
+            }
+        } else {
+            liveDiv.innerHTML = `<p>Ожидание подзаказа... (${new Date().toLocaleTimeString()})</p>`;
+        }
+    } catch(e) {
+        liveDiv.innerHTML = `<p style="color:red;">Ошибка запроса: ${e.message}</p>`;
+        console.error('Polling error:', e);
+    }
+}, 2000);
+
+        showLoading(false);
+        showSuccess(`Заказ создан! ID: ${orderId}. Отслеживание статуса...`);
+        showResult('=== СОЗДАНИЕ ЗАКАЗА ===\n' + JSON.stringify(createData, null, 2) + '\n\nЗаказ: ' + orderId + '\nСтатус: отслеживается...', 'success');
+
+        loadHistory();
+    } catch (error) {
+        showLoading(false);
+        showError(`Ошибка подключения: ${error.message}`);
+        showResult(error.message, 'error');
+    }
+}
+
+function stopOrderPolling() {
+    clearInterval(window._orderPollInterval);
+}
+
 // ========== ПРОГРЕСС ШАГОВ WORKFLOW ==========
 let _lastCodesForAggregation = [];
 
@@ -118,8 +396,12 @@ async function executeWorkflow() {
 // ========== ОТЧЕТ ОБ АГРЕГАЦИИ ==========
 async function reportAggregation() {
     const businessPlaceId = parseInt(document.getElementById('aggBusinessPlaceId').value);
-    const packageCount = parseInt(document.getElementById('aggPackageCount').value);
-    const codesStr = document.getElementById('aggCodes').value;
+    let packageCount = parseInt(document.getElementById('aggPackageCount').value);
+    if (!packageCount || packageCount < 1) {
+        packageCount = 1; // По умолчанию 1 упаковка (1 SSCC)
+    }
+    // Используем коды из файла если загружены, иначе из поля ввода
+    let codesStr = _loadedCodesFromFile || document.getElementById('aggCodes').value;
     const serialNumber = document.getElementById('aggSerialNumber').value;
 
     if (!businessPlaceId || !packageCount || !codesStr) {
@@ -127,25 +409,55 @@ async function reportAggregation() {
         return;
     }
 
-    const codes = codesStr.split(',').map(c => c.trim()).filter(c => c);
+    // Разделяем коды ТОЛЬКО по переносу строки (не по спецсимволам!)
+    let codes = codesStr.split(/\n/).map(c => c.trim()).filter(c => c && c.length > 0);
+    
+    // Убираем возможные BOM-символы
+    codes = codes.map(c => c.replace(/^[\uFEFF]/, '')).filter(c => c.length > 0);
+    
+    console.log('Разобрано кодов:', codes.length);
+    if (codes.length > 0) console.log('Первый код:', codes[0], 'длина:', codes[0].length);
+    if (codes.length > 1) console.log('Второй код:', codes[1], 'длина:', codes[1].length);
+    
+    // Если кодов 0 - ошибка
+    if (codes.length === 0) {
+        showError('Введите хотя бы один код');
+        return;
+    }
+    
     const aggregationUnits = [];
+    const codesPerPack = Math.floor(codes.length / packageCount);
+    const extraCodes = codes.length % packageCount;
+    
+    let codeIndex = 0;
     for (let i = 0; i < packageCount; i++) {
-        const perPack = Math.ceil(codes.length / packageCount);
-        const unitCodes = codes.slice(i * perPack, (i + 1) * perPack);
+        // Распределяем коды: первым extraCodes упаковкам даём на 1 код больше
+        const numCodes = codesPerPack + (i < extraCodes ? 1 : 0);
+        const unitCodes = codes.slice(codeIndex, codeIndex + numCodes);
+        codeIndex += numCodes;
+        
+        // Генерируем уникальный SSCC для каждой упаковки
+        let sscc = '';
+        if (serialNumber) {
+            // Если указан базовый SSCC, добавляем индекс
+            sscc = serialNumber + String(i).padStart(3, '0');
+        } else {
+            // Генерируем уникальный SSCC на основе времени и индекса
+            sscc = '00' + String(Date.now() + i).padStart(16, '0');
+        }
+        
         aggregationUnits.push({
             aggregationItemsCount: unitCodes.length,
             aggregationUnitCapacity: codes.length,
             codes: unitCodes,
             shouldBeUnbundled: false,
-            unitSerialNumber: serialNumber || `SSCC_${i}`
+            unitSerialNumber: sscc
         });
     }
 
     const payload = {
         aggregationUnits,
-        businessPlaceId,
-        documentDate: new Date().toISOString(),
-        productionOrderId: ""
+        businessPlaceId
     };
 
     try {
