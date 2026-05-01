@@ -708,6 +708,136 @@ function closeModal() {
     document.getElementById('successModal').classList.remove('show');
 }
 
+// ========== АВТОМАТИЗИРОВАННЫЕ ТЕСТЫ ==========
+
+async function runTestSuite(suiteName) {
+    const progressPanel = document.getElementById('testProgressPanel');
+    const progressBar = document.getElementById('testProgressBar');
+    const progressText = document.getElementById('testProgressText');
+
+    progressPanel.style.display = 'block';
+    progressText.textContent = `Запуск ${suiteName === 'full' ? 'всех тестов' : suiteName}...`;
+    progressBar.style.width = '10%';
+
+    try {
+        showLoading(true);
+
+        const endpoint = {
+            'orders': '/v1/test/orders-suite',
+            'utilisations': '/v1/test/utilisations-suite',
+            'aggregations': '/v1/test/aggregations-suite',
+            'full': '/v1/test/full-suite'
+        }[suiteName];
+
+        const response = await fetch(`${API_HOST}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        progressBar.style.width = '50%';
+
+        const data = await response.json();
+        showLoading(false);
+
+        progressBar.style.width = '100%';
+
+        if (!response.ok) {
+            showError(`Ошибка тестирования: ${data.error || response.statusText}`);
+            progressText.textContent = `❌ Ошибка выполнения ${suiteName}`;
+            progressText.style.color = 'red';
+            return;
+        }
+
+        const runId = data.run_id;
+        const passed = data.passed || 0;
+        const failed = data.failed || 0;
+        const total = data.total || 0;
+        const duration = data.duration_sec || 0;
+        const status = data.status || 'UNKNOWN';
+
+        // Показываем результаты
+        const resultHTML = `
+            <div style="background: var(--surface); padding: 16px; border-radius: 8px; margin-top: 16px;">
+                <h3 style="margin-top: 0;">✅ Тесты завершены</h3>
+                <p><strong>Suite:</strong> ${suiteName}</p>
+                <p><strong>Status:</strong> ${status === 'SUCCESS' ? '✅ SUCCESS' : '❌ FAILED'}</p>
+                <p><strong>Всего тестов:</strong> ${total}</p>
+                <p><strong>Пройдено:</strong> <span style="color: #4caf50;">${passed}</span></p>
+                <p><strong>Ошибок:</strong> <span style="color: ${failed > 0 ? '#f44336' : '#4caf50'};">${failed}</span></p>
+                <p><strong>Время:</strong> ${duration}с</p>
+                <p><strong>ID запуска:</strong> <code>${runId}</code></p>
+                <button type="button" class="secondary-btn" onclick="loadTestDetails(${runId})">
+                    📊 Посмотреть детали
+                </button>
+            </div>
+        `;
+
+        showResult(resultHTML, status === 'SUCCESS' ? 'success' : 'error');
+        progressText.textContent = `✅ Тесты ${suiteName} завершены: ${passed}/${total} пройдено`;
+        progressText.style.color = failed === 0 ? '#4caf50' : '#f44336';
+
+        // Обновить историю
+        loadTestHistory();
+        loadHistory();
+    } catch (error) {
+        showLoading(false);
+        showError(`Ошибка подключения: ${error.message}`);
+        progressText.textContent = `❌ Ошибка: ${error.message}`;
+        progressText.style.color = 'red';
+        progressPanel.style.display = 'block';
+    }
+}
+
+async function loadTestHistory() {
+    try {
+        const response = await fetch(`${API_HOST}/v1/test/runs?limit=10`);
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const runs = data.test_runs || [];
+
+        // Можно отобразить историю в отдельной панели
+        log('Текущие тесты:', runs);
+    } catch (error) {
+        console.error('Ошибка загрузки истории тестов:', error);
+    }
+}
+
+async function loadTestDetails(runId) {
+    try {
+        const response = await fetch(`${API_HOST}/v1/test/cases?run_id=${runId}`);
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const testCases = data.test_cases || [];
+
+        // Формируем детальный отчет
+        let detailsHTML = `<h3>Детали тестового запуска #${runId}</h3>`;
+        detailsHTML += '<table style="width:100%; border-collapse:collapse;">';
+        detailsHTML += '<tr style="background:var(--surface); border-bottom:1px solid var(--border);">';
+        detailsHTML += '<th style="padding:8px; text-align:left;">Тест</th>';
+        detailsHTML += '<th style="padding:8px; text-align:left;">Статус</th>';
+        detailsHTML += '<th style="padding:8px; text-align:left;">Время (ms)</th>';
+        detailsHTML += '</tr>';
+
+        testCases.forEach(tc => {
+            const statusIcon = tc.status === 'PASSED' ? '✅' : '❌';
+            const statusColor = tc.status === 'PASSED' ? '#4caf50' : '#f44336';
+            detailsHTML += `<tr style="border-bottom:1px solid var(--border);">`;
+            detailsHTML += `<td style="padding:8px;">${tc.case_name}</td>`;
+            detailsHTML += `<td style="padding:8px; color:${statusColor};">${statusIcon} ${tc.status}</td>`;
+            detailsHTML += `<td style="padding:8px;">${tc.duration_milliseconds}ms</td>`;
+            detailsHTML += `</tr>`;
+        });
+
+        detailsHTML += '</table>';
+
+        showResult(detailsHTML, 'normal');
+    } catch (error) {
+        showError(`Ошибка загрузки деталей: ${error.message}`);
+    }
+}
+
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
 document.addEventListener('DOMContentLoaded', function() {
     // Применить сохранённую тему

@@ -20,16 +20,19 @@
                 <!-- Вкладки -->
                 <div class="tabs">
                     <button class="tab-btn active" onclick="switchTab('createOrderOnly', event)">
-                        Заказ кодов 
+                        📋 Заказ кодов
                     </button>
                     <button class="tab-btn" onclick="switchTab('execute', event)">
-                        Workflow Заказ-Нанесение 
+                        🔄 Workflow
                     </button>
                     <button class="tab-btn" onclick="switchTab('aggregation', event)">
-                        Агрегация
+                        📦 Агрегация
                     </button>
                     <button class="tab-btn" onclick="switchTab('complete', event)">
-                        Полный цикл
+                        🎯 Полный цикл
+                    </button>
+                    <button class="tab-btn" onclick="switchTab('automated-tests', event)">
+                        🤖 Автотесты
                     </button>
                 </div>
 
@@ -196,6 +199,54 @@
                             Запустить
                         </button>
                     </form>
+                </div>
+
+                <!-- Tab 4: Automated Tests -->
+                <div id="automated-tests" class="tab-content">
+                    <h2>🤖 Автоматизированные тесты</h2>
+                    <p class="help-text">Запуск полных наборов тестовых сценариев</p>
+
+                    <div class="tests-container">
+                        <div class="test-suite">
+                            <h3>📋 Тесты заказов (Orders)</h3>
+                            <p>10+ сценариев: разные товарные группы, платность, серийники</p>
+                            <button type="button" class="primary-btn" onclick="runTestSuite('orders')">
+                                ▶ Запустить тесты заказов
+                            </button>
+                        </div>
+
+                        <div class="test-suite">
+                            <h3>📤 Тесты нанесений (Utilisations)</h3>
+                            <p>6+ сценариев: вода, табак, пиво, алкоголь, фарма, импорт</p>
+                            <button type="button" class="primary-btn" onclick="runTestSuite('utilisations')">
+                                ▶ Запустить тесты нанесений
+                            </button>
+                        </div>
+
+                        <div class="test-suite">
+                            <h3>📦 Тесты агрегации (Aggregation)</h3>
+                            <p>4+ сценария: простая, многоуровневая агрегация, разные ТГ</p>
+                            <button type="button" class="primary-btn" onclick="runTestSuite('aggregations')">
+                                ▶ Запустить тесты агрегации
+                            </button>
+                        </div>
+
+                        <div class="test-suite full-suite">
+                            <h3>🎯 Полный цикл всех тестов</h3>
+                            <p>Последовательное выполнение всех трех наборов (Orders → Utilisations → Aggregation)</p>
+                            <button type="button" class="primary-btn success-btn" onclick="runTestSuite('full')">
+                                ▶ Запустить все тесты
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="testProgressPanel" style="display:none; margin-top:20px;">
+                        <h3>Прогресс тестирования</h3>
+                        <div id="testProgress" class="progress-bar-container">
+                            <div id="testProgressBar" class="progress-bar" style="width: 0%"></div>
+                        </div>
+                        <p id="testProgressText" style="text-align:center; margin-top:10px;">Инициализация...</p>
+                    </div>
                 </div>
             </div>
 

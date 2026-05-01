@@ -67,11 +67,13 @@ func main() {
 	markingHandler := api.NewMarkingHandler(markingService)
 	workflowService := service.NewWorkflowService(markingService, cfg)
 	workflowHandler := api.NewWorkflowHandler(workflowService)
+	testHandler := api.NewTestHandler(markingService, workflowService)
 
 	v1 := r.Group("/v1")
 	{
 		markingGroup := v1.Group("/marking")
 		workflowGroup := v1.Group("/workflow")
+		testGroup := v1.Group("/test")
 		{
 			workflowGroup.POST("/execute", workflowHandler.ExecuteWorkflow)
 			workflowGroup.POST("/complete", workflowHandler.CompleteWorkflow)
@@ -96,6 +98,16 @@ func main() {
 		markingGroup.GET("/generate-sscc", markingHandler.GenerateSSCC)
 		markingGroup.GET("/history", markingHandler.GetHistory)
 		markingGroup.GET("/product-cards", markingHandler.GetProductCards)
+
+		// ========== АВТОМАТИЗИРОВАННЫЕ ТЕСТЫ ==========
+		{
+			testGroup.POST("/orders-suite", testHandler.OrdersTestSuite)
+			testGroup.POST("/utilisations-suite", testHandler.UtilisationsTestSuite)
+			testGroup.POST("/aggregations-suite", testHandler.AggregationTestSuite)
+			testGroup.POST("/full-suite", testHandler.FullTestSuite)
+			testGroup.GET("/runs", testHandler.GetTestRunHistory)
+			testGroup.GET("/cases", testHandler.GetTestCases)
+		}
 	}
 
 	// Файлы кодов
