@@ -692,8 +692,10 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 		downloadedCodes[ow.name] = codes.Codes
 	}
 
-	// Задержка перед нанесением (чтобы статусы обновились в API)
-	time.Sleep(1 * time.Second)
+	// Задержка перед нанесением (чтобы коды обновили статус в системе API с RECEIVED на готовый формат)
+	log.Println("INFO: Ожидание обновления статуса кодов в системе (5 сек)...")
+	time.Sleep(5 * time.Second)
+	log.Println("INFO: Коды готовы к нанесению")
 
 	// Phase 3: Нанесение КИ для воды
 	if len(downloadedCodes["water"]) > 0 {
