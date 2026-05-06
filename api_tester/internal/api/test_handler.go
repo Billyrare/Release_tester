@@ -692,10 +692,21 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 		downloadedCodes[ow.name] = codes.Codes
 	}
 
+	// Задержка перед нанесением (чтобы статусы обновились в API)
+	time.Sleep(1 * time.Second)
+
 	// Phase 3: Нанесение КИ для воды
 	if len(downloadedCodes["water"]) > 0 {
 		codes := downloadedCodes["water"]
-		kiCodes := util.TruncateToKIList(codes, "water")
+		// Обрезаем до 31 символа для воды
+		kiCodes := make([]string, len(codes))
+		for i, code := range codes {
+			if len(code) > 31 {
+				kiCodes[i] = code[:31]
+			} else {
+				kiCodes[i] = code
+			}
+		}
 
 		reqBody, _ := json.Marshal(map[string]interface{}{"codes": kiCodes, "count": len(kiCodes)})
 		t0 := time.Now()
@@ -703,8 +714,8 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 		utilizationReq := models.UtilisationRequest{
 			Sntins:              kiCodes,
 			BusinessPlaceId:     1,
-			ReleaseType:         "PRODUCTION",
-			ManufacturerCountry: "UZ",
+			ReleaseType:         "IMPORT",
+			ManufacturerCountry: "RU",
 			ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
 			ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
 		}
@@ -713,17 +724,25 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 		dur := time.Since(t0).Milliseconds()
 
 		if err != nil {
-			logTC(runID, "marking_application_ki_water", "Нанесение КИ (потребительская упаковка) для воды", "FAILED", string(reqBody), "", err.Error(), dur, &passedCount, &failedCount)
+			logTC(runID, "marking_application_ki_water", "Нанесение КИ (потребительская упаковка) для воды - ИМПОРТ", "FAILED", string(reqBody), "", err.Error(), dur, &passedCount, &failedCount)
 		} else {
 			respBody, _ := json.Marshal(resp)
-			logTC(runID, "marking_application_ki_water", "Нанесение КИ (потребительская упаковка) для воды", "PASSED", string(reqBody), string(respBody), "", dur, &passedCount, &failedCount)
+			logTC(runID, "marking_application_ki_water", "Нанесение КИ (потребительская упаковка) для воды - ИМПОРТ", "PASSED", string(reqBody), string(respBody), "", dur, &passedCount, &failedCount)
 		}
 	}
 
 	// Phase 4: Нанесение КИГУ для пива
 	if len(downloadedCodes["beer_kigu"]) > 0 {
 		codes := downloadedCodes["beer_kigu"]
-		kiCodes := util.TruncateToKIList(codes, "beer")
+		// Обрезаем до 31 символа для групповой пиво упаковки
+		kiCodes := make([]string, len(codes))
+		for i, code := range codes {
+			if len(code) > 31 {
+				kiCodes[i] = code[:31]
+			} else {
+				kiCodes[i] = code
+			}
+		}
 
 		reqBody, _ := json.Marshal(map[string]interface{}{"codes": kiCodes, "count": len(kiCodes)})
 		t0 := time.Now()
@@ -731,8 +750,8 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 		utilizationReq := models.UtilisationRequest{
 			Sntins:              kiCodes,
 			BusinessPlaceId:     1,
-			ReleaseType:         "PRODUCTION",
-			ManufacturerCountry: "UZ",
+			ReleaseType:         "IMPORT",
+			ManufacturerCountry: "RU",
 			ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
 			ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
 			SeriesNumber:        "TEST-SERIES",
@@ -742,10 +761,10 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 		dur := time.Since(t0).Milliseconds()
 
 		if err != nil {
-			logTC(runID, "marking_application_kigu_beer", "Нанесение КИГУ (групповая упаковка) для пива", "FAILED", string(reqBody), "", err.Error(), dur, &passedCount, &failedCount)
+			logTC(runID, "marking_application_kigu_beer", "Нанесение КИГУ (групповая упаковка) для пива - ИМПОРТ", "FAILED", string(reqBody), "", err.Error(), dur, &passedCount, &failedCount)
 		} else {
 			respBody, _ := json.Marshal(resp)
-			logTC(runID, "marking_application_kigu_beer", "Нанесение КИГУ (групповая упаковка) для пива", "PASSED", string(reqBody), string(respBody), "", dur, &passedCount, &failedCount)
+			logTC(runID, "marking_application_kigu_beer", "Нанесение КИГУ (групповая упаковка) для пива - ИМПОРТ", "PASSED", string(reqBody), string(respBody), "", dur, &passedCount, &failedCount)
 		}
 	}
 
