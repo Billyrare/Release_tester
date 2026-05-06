@@ -3,370 +3,137 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API Тестер</title>
-    <link rel="stylesheet" href="/assets/style.css?v=3">
+    <title>API Тестер - Маркировка</title>
+    <link rel="stylesheet" href="/assets/style.css?v=4">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>API Тестер</h1>
-            <p class="subtitle">Управление маркировкой и отчетами об агрегации</p>
+            <p class="subtitle">Система автоматизации маркировки</p>
             <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">🌙 Тёмная тема</button>
         </header>
 
         <div class="main-content">
-            <!-- Левая колонна: Формы -->
+            <!-- Левая колонна: Операции -->
             <div class="forms-section">
-                <!-- Вкладки -->
                 <div class="tabs">
-                    <button class="tab-btn active" onclick="switchTab('createOrderOnly', event)">
-                        📋 Заказ кодов
-                    </button>
-                    <button class="tab-btn" onclick="switchTab('execute', event)">
+                    <button class="tab-btn active" onclick="switchTab('workflow', event)">
                         🔄 Workflow
                     </button>
-                    <button class="tab-btn" onclick="switchTab('marking-operation', event)">
-                        🔏 Нанесение
-                    </button>
-                    <button class="tab-btn" onclick="switchTab('aggregation', event)">
-                        📦 Агрегация
-                    </button>
-                    <button class="tab-btn" onclick="switchTab('complete', event)">
-                        🎯 Полный цикл
-                    </button>
-                    <button class="tab-btn" onclick="switchTab('automated-tests', event)">
+                    <button class="tab-btn" onclick="switchTab('tests', event)">
                         🤖 Автотесты
                     </button>
                 </div>
 
-                <!-- Tab 0: Create Order Only (creates order + checks status) -->
-                <div id="createOrderOnly" class="tab-content active">
-                    <h2>📋 Заказ кодов</h2>
-                    <p class="help-text">Создание заказа и проверка статуса</p>
-                    
+                <!-- Workflow Tab -->
+                <div id="workflow" class="tab-content active">
+                    <h2>🔄 Автоматический Workflow</h2>
+                    <p class="help-text">Полный цикл: Заказ → Выгрузка → Нанесение</p>
+
                     <form class="form-group">
                         <label>Группа товара:</label>
-                        <select id="orderGroup" onchange="onProductGroupChange(this)">
-                            <option value="" disabled selected>Выбрать тг</option>
-                            <option value="tobacco">tobacco</option>
-                            <option value="water">water</option>
-                            <option value="appliances">appliances</option>
+                        <select id="wfProductGroup" onchange="updateGtinOptions()">
+                            <option value="">-- Выбрать группу --</option>
+                            <option value="water">💧 Вода</option>
+                            <option value="beer">🍺 Пиво</option>
+                            <option value="alcohol">🍷 Алкоголь</option>
+                            <option value="tobacco">🚬 Табак</option>
+                            <option value="appliances">🔧 Техника</option>
+                            <option value="pharma">💊 Лекарства</option>
                         </select>
 
-                        <label>BusinessPlaceId:</label>
-                        <input type="number" id="orderBusinessPlaceId" placeholder="1" value="1" min="1">
-
-                        <label>Метод выпуска (releaseMethodType):</label>
-                        <select id="orderReleaseMethodType">
-                            <option value="PRIMARY" selected>PRIMARY</option>
-                            <option value="CONTRACT">CONTRACT</option>
-                            <option value="IMPORT">IMPORT</option>
-                            <option value="OWN_PRODUCTION">OWN_PRODUCTION</option>
-                        </select>
-
-                        <label>Оплачено (isPaid):</label>
-                        <select id="orderIsPaid">
-                            <option value="true" selected>Да (true)</option>
-                            <option value="false">Нет (false)</option>
-                        </select>
-
-                        <hr style="border: 0; border-top: 1px solid var(--border); margin: 10px 0;">
-                        <p style="color: var(--text-muted); font-size: 0.85em; margin-bottom: 10px;">Товары:</p>
-
-                        <label>GTIN:</label>
-                        <select id="orderGtin">
-                            <option value="">-- Сначала выберите товарную группу --</option>
+                        <label>GTIN (автоматический выбор):</label>
+                        <select id="wfGtin">
+                            <option value="">-- Выберите группу товара --</option>
                         </select>
 
                         <label>Количество кодов:</label>
-                        <input type="number" id="orderQuantity" placeholder="Количество" value="1" min="1">
-
-                        <label>Тип серийного номера (serialNumberType):</label>
-                        <select id="orderSerialNumberType">
-                            <option value="OPERATOR" selected>OPERATOR</option>
-                            <option value="MANUFACTURER">MANUFACTURER</option>
-                            <option value="GENERATE">GENERATE</option>
-                        </select>
-
-                        <label>Тип КИ (cisType):</label>
-                        <select id="orderCisType">
-                            <option value="UNIT" selected>UNIT</option>
-                            <option value="GROUP">GROUP</option>
-                            <option value="SET">SET</option>
-                        </select>
-
-                        <label>Дней до истечения:</label>
-                        <input type="number" id="orderExpirationDays" placeholder="365" value="365" min="1">
-
-                        <button type="button" onclick="createOrderAndCheck()">
-                            Создать заказ и проверить
-                        </button>
-                    </form>
-                </div>
-
-                <!-- Tab 1: Execute Workflow -->
-                <div id="execute" class="tab-content">
-                    <h2>Workflow Заказ-Нанесение</h2>
-                    <p class="help-text">Создание заказа, сбор кодов и отчет о нанесении</p>
-                    
-                    <form class="form-group">
-                        <label>Группа товара:</label>
-                        <select id="executeGroup" onchange="onProductGroupChangeForWorkflow(this, 'execute')">
-                            <option value="" disabled selected>Выбрать тг</option>
-                            <option value="tobacco">tobacco</option>
-                            <option value="water">water</option>
-                            <option value="appliances">appliances</option>
-                            <option value="alcohol">alcohol</option>
-                            <option value="perfumes">perfumes</option>
-                            <option value="electronics">electronics</option>
-                            <option value="medicine">medicine</option>
-                        </select>
-
-                        <label>GTIN:</label>
-                        <select id="executeGtin">
-                            <option value="">-- Сначала выберите товарную группу --</option>
-                        </select>
-
-                        <label>Количество кодов:</label>
-                        <input type="number" id="executeQuantity" placeholder="Количество" value="" min="1">
-
-                        <label>Дней до истечения:</label>
-                        <input type="number" id="executeExpirationDays" placeholder="Стандарт 365" value="365" min="1">
-
-                        <button type="button" onclick="executeWorkflow()">
-                            Запустить
-                        </button>
-                    </form>
-                </div>
-
-                <!-- Tab 2: Marking Operation -->
-                <div id="marking-operation" class="tab-content">
-                    <h2>🔏 Операция нанесения</h2>
-                    <p class="help-text">Нанесение маркировочных кодов на товары (КИ и КИГУ)</p>
-
-                    <form class="form-group">
-                        <label>Order ID:</label>
-                        <input type="text" id="markingOrderId" placeholder="Введите Order ID" value="">
-
-                        <label>GTIN:</label>
-                        <input type="text" id="markingGtin" placeholder="Введите GTIN" value="">
-
-                        <label>Группа товара:</label>
-                        <select id="markingProductGroup">
-                            <option value="" disabled selected>Выбрать тг</option>
-                            <option value="water">water</option>
-                            <option value="tobacco">tobacco</option>
-                            <option value="beer">beer</option>
-                            <option value="alcohol">alcohol</option>
-                            <option value="appliances">appliances</option>
-                            <option value="pharma">pharma</option>
-                            <option value="medicine">medicine</option>
-                        </select>
-
-                        <label>Количество кодов для нанесения:</label>
-                        <input type="number" id="markingQuantity" placeholder="1" value="1" min="1">
+                        <input type="number" id="wfQuantity" placeholder="5" value="5" min="1" max="1000">
 
                         <label>BusinessPlaceId:</label>
-                        <input type="number" id="markingBusinessPlaceId" placeholder="1" value="1" min="1">
+                        <input type="number" id="wfBusinessPlaceId" placeholder="1" value="1" min="1">
 
-                        <label>Способ ввода в оборот (releaseType):</label>
-                        <select id="markingReleaseType">
-                            <option value="PRODUCTION" selected>PRODUCTION</option>
-                            <option value="IMPORT">IMPORT</option>
-                            <option value="TAKE_OVER">TAKE_OVER</option>
-                        </select>
+                        <label>Дней до истечения:</label>
+                        <input type="number" id="wfExpirationDays" placeholder="365" value="365" min="1">
 
-                        <label>Страна производства:</label>
-                        <input type="text" id="markingCountry" placeholder="UZ" value="UZ" maxlength="2">
+                        <button type="button" class="primary-btn" onclick="runWorkflow()">
+                            ▶ Запустить Workflow
+                        </button>
+                    </form>
 
-                        <label>Тип упаковки (выбранный сценарий):</label>
-                        <select id="markingCisType">
-                            <option value="ki" selected>КИ (потребительская упаковка)</option>
-                            <option value="kigu">КИГУ (групповая упаковка)</option>
-                        </select>
-
-                        <div style="display: flex; gap: 10px; margin-top: 15px;">
-                            <button type="button" onclick="applyMarking('ki')" style="flex: 1;">
-                                📌 Нанесение КИ
-                            </button>
-                            <button type="button" onclick="applyMarking('kigu')" style="flex: 1;">
-                                📦 Нанесение КИГУ
-                            </button>
+                    <div id="workflowProgress" style="display:none; margin-top:20px; padding:15px; background:var(--surface); border-radius:8px; border:1px solid var(--border);">
+                        <div class="progress-bar-container">
+                            <div id="wfProgressBar" class="progress-bar" style="width: 0%"></div>
                         </div>
-                    </form>
+                        <p id="wfProgressText" style="text-align:center; margin-top:12px; font-size:0.95em; font-weight:500; color:var(--text);">Инициализация...</p>
+                    </div>
                 </div>
 
-                <!-- Tab 4: Aggregation Report -->
-                <div id="aggregation" class="tab-content">
-                    <h2>Агрегация</h2>
-                    <p class="help-text">Подача документа об агрегации маркированных товаров</p>
-
-                    <form class="form-group">
-                        <label>BusinessPlaceId:</label>
-                        <input type="number" id="aggBusinessPlaceId" placeholder="1" value="1" min="1">
-
-                        <label>Количество упаковок (SSCC):</label>
-                        <input type="number" id="aggPackageCount" placeholder="1" value="1" min="1">
-
-                        <label>Загрузить коды из файла (.txt, .csv):</label>
-                        <input type="file" id="aggFile" accept=".txt,.csv" onchange="loadCodesFromFile(this)">
-
-                        <label>Коды в упаковке (по одному на строку):</label>
-                        <textarea id="aggCodes" placeholder="Коды по одному на строку" rows="5"></textarea>
-
-                        <label>SSCC родительской упаковки (опционально):</label>
-                        <input type="text" id="aggSerialNumber" placeholder="00000000000000000000">
-
-                        <button type="button" onclick="reportAggregation()">
-                            Подать отчет
-                        </button>
-                    </form>
-                </div>
-
-                <!-- Tab 5: Complete Workflow -->
-                <div id="complete" class="tab-content">
-                    <h2>Полный цикл</h2>
-                    <p class="help-text">С дополнительной конфигурацией</p>
-
-                    <form class="form-group">
-                        <label>GTIN:</label>
-                        <select id="completeGtin">
-                            <option value="">-- Сначала выберите товарную группу --</option>
-                        </select>
-
-                        <label>Группа товара:</label>
-                        <select id="completeGroup" onchange="onProductGroupChangeForWorkflow(this, 'complete')">
-                            <option value="" disabled selected>Выбрать тг</option>
-                            <option value="tobacco">tobacco</option>
-                            <option value="water">water</option>
-                            <option value="appliances">appliances</option>
-                            <option value="alcohol">alcohol</option>
-                            <option value="perfumes">perfumes</option>
-                            <option value="electronics">electronics</option>
-                            <option value="medicine">medicine</option>
-                        </select>
-
-                        <label>Количество кодов:</label>
-                        <input type="number" id="completeQuantity" placeholder="5" value="5" min="1">
-
-                        <label>BusinessPlaceId для заказа:</label>
-                        <input type="number" id="completeBusinessPlaceId" placeholder="1" value="1" min="1">
-
-                        <label>ProductionOrderId (опционально):</label>
-                        <input type="text" id="completeProductionOrderId" placeholder="">
-
-                        <button type="button" onclick="completeWorkflow()">
-                            Запустить
-                        </button>
-                    </form>
-                </div>
-
-                <!-- Tab 6: Automated Tests -->
-                <div id="automated-tests" class="tab-content">
-                    <h2>🤖 Автоматизированные тесты</h2>
+                <!-- Tests Tab -->
+                <div id="tests" class="tab-content">
+                    <h2>🤖 Автоматизированные Тесты</h2>
                     <p class="help-text">Запуск полных наборов тестовых сценариев</p>
 
                     <div class="tests-container">
                         <div class="test-suite">
-                            <h3>📋 Тесты заказов (Orders)</h3>
-                            <p style="color:var(--text-muted);font-size:0.82em;margin:4px 0 8px;">
-                                Фазы: <b>Создание</b> → <b>Ожидание READY</b> → <b>Выгрузка кодов</b> → <b>Проверка платежа</b>
-                            </p>
-                            <button type="button" class="primary-btn" onclick="runTestSuite('orders')">
+                            <h3>📋 Заказы (Orders)</h3>
+                            <p>Создание, ожидание, выгрузка</p>
+                            <button type="button" class="primary-btn" onclick="runTests('orders')">
                                 ▶ Запустить
                             </button>
                         </div>
 
                         <div class="test-suite">
-                            <h3>📤 Тесты нанесений (Utilisations)</h3>
-                            <p style="color:var(--text-muted);font-size:0.82em;margin:4px 0 8px;">
-                                8 сценариев: вода, пиво, алкоголь, бытовая техника, лекарства, импорт
-                            </p>
-                            <button type="button" class="primary-btn" onclick="runTestSuite('utilisations')">
+                            <h3>📤 Нанесения (Utilisations)</h3>
+                            <p>7 сценариев разных товаров</p>
+                            <button type="button" class="primary-btn" onclick="runTests('utilisations')">
                                 ▶ Запустить
                             </button>
                         </div>
 
                         <div class="test-suite">
-                            <h3>🔏 Тесты нанесения (с реальными кодами)</h3>
-                            <p style="color:var(--text-muted);font-size:0.82em;margin:4px 0 8px;">
-                                Автоматическое: Заказ → Выгрузка → Нанесение КИ + КИГУ
-                            </p>
-                            <button type="button" class="primary-btn" onclick="runTestSuite('marking_applications')">
-                                ▶ Запустить
-                            </button>
-                        </div>
-
-                        <div class="test-suite">
-                            <h3>📦 Тесты агрегации (Aggregation)</h3>
-                            <p style="color:var(--text-muted);font-size:0.82em;margin:4px 0 8px;">
-                                4 сценария: простая, многоуровневая агрегация, разные ТГ
-                            </p>
-                            <button type="button" class="primary-btn" onclick="runTestSuite('aggregations')">
+                            <h3>📦 Агрегация</h3>
+                            <p>4 сценария агрегации</p>
+                            <button type="button" class="primary-btn" onclick="runTests('aggregations')">
                                 ▶ Запустить
                             </button>
                         </div>
 
                         <div class="test-suite full-suite">
-                            <h3>🎯 Полный цикл</h3>
-                            <p style="color:var(--text-muted);font-size:0.82em;margin:4px 0 8px;">
-                                Orders → Utilisations → Aggregation
-                            </p>
-                            <button type="button" class="primary-btn success-btn" onclick="runTestSuite('full')">
+                            <h3>🎯 Полный Цикл</h3>
+                            <p>Orders → Utilisations → Aggregation</p>
+                            <button type="button" class="primary-btn success-btn" onclick="runTests('full')">
                                 ▶ Запустить все
                             </button>
                         </div>
                     </div>
 
-                    <div id="testProgressPanel" style="display:none; margin-top:16px;">
-                        <div id="testProgress" class="progress-bar-container">
+                    <div id="testProgressPanel" style="display:none; margin-top:20px; padding:15px; background:var(--surface); border-radius:8px; border:1px solid var(--border);">
+                        <div class="progress-bar-container">
                             <div id="testProgressBar" class="progress-bar" style="width: 0%"></div>
                         </div>
-                        <p id="testProgressText" style="text-align:center; margin-top:6px; font-size:0.85em;">Инициализация...</p>
-                    </div>
-
-                    <div style="margin-top:20px;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                            <h3 style="margin:0;font-size:0.95em;">История тестов</h3>
-                            <button onclick="loadTestHistory()" class="secondary-btn" style="padding:4px 10px;font-size:0.8em;">Обновить</button>
-                        </div>
-                        <div id="testRunHistory" class="history-list">
-                            <p class="placeholder">Загрузка...</p>
-                        </div>
+                        <p id="testProgressText" style="text-align:center; margin-top:12px; font-size:0.95em; font-weight:500; color:var(--text);">Инициализация...</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Правая колонна: Результаты и статус -->
+            <!-- Правая колонна: Результаты -->
             <div class="results-section">
                 <div class="result-panel">
-                    <h2>Результат</h2>
+                    <h2>📊 Результат</h2>
                     <div id="result" class="result-output">
                         <p class="placeholder">Результаты запросов будут отображаться здесь...</p>
                     </div>
-                    <div id="downloadCodesBtn" style="display:none; margin-top:8px;">
-                        <button class="secondary-btn" onclick="downloadCodesFromResult()">💾 Скачать коды (.txt)</button>
-                    </div>
-                </div>
-
-                <div class="result-panel" id="orderStatusPanel" style="display:none;">
-                    <h2>📊 Статус заказа</h2>
-                    <div id="orderStatusLive"></div>
-                    <button onclick="stopOrderPolling()" class="secondary-btn">Остановить</button>
-                </div>
-
-                <div class="result-panel">
-                    <h2>📁 Сохранённые файлы кодов</h2>
-                    <button onclick="loadCodeFiles()" class="secondary-btn">Обновить</button>
-                    <div id="codeFiles" class="history-list">
-                        <p class="placeholder">Загрузка...</p>
+                    <div id="downloadBtn" style="display:none; margin-top:8px;">
+                        <button class="secondary-btn" onclick="downloadCodesFromResult()">💾 Скачать коды</button>
                     </div>
                 </div>
 
                 <div class="result-panel">
-                    <h2>История</h2>
-                    <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
-                        <button onclick="loadHistory()" class="secondary-btn" style="margin-bottom:0;">Обновить</button>
+                    <h2>📁 История Операций</h2>
+                    <div style="display:flex; gap:8px; margin-bottom:8px;">
+                        <button onclick="loadHistory()" class="secondary-btn" style="flex:0;">Обновить</button>
                         <input type="text" id="historyFilter" placeholder="Поиск..." oninput="filterHistory()"
                             style="flex:1; padding:6px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); font-size:0.85em;">
                     </div>
@@ -376,7 +143,7 @@
                 </div>
 
                 <div class="status-panel">
-                    <h2>Статус</h2>
+                    <h2>✅ Статус API</h2>
                     <div id="apiStatus" class="status-content">
                         <p>Проверка соединения...</p>
                     </div>
@@ -385,36 +152,23 @@
         </div>
     </div>
 
-    <!-- Модальное окно для ошибок -->
+    <!-- Модальные окна -->
     <div id="errorModal" class="modal">
         <div class="modal-content error">
-            <h3>Ошибка</h3>
+            <h3>⚠️ Ошибка</h3>
             <p id="errorMessage"></p>
             <button onclick="closeModal()">Закрыть</button>
         </div>
     </div>
 
-    <!-- Модальное окно для успеха -->
     <div id="successModal" class="modal">
         <div class="modal-content success">
-            <h3>Успешно</h3>
+            <h3>✅ Успех</h3>
             <p id="successMessage"></p>
             <button onclick="closeModal()">Закрыть</button>
         </div>
     </div>
 
-    <!-- Загрузочный спиннер с прогрессом шагов -->
-    <div id="loadingSpinner" class="loading-spinner" style="display: none;">
-        <div class="spinner"></div>
-        <p id="loadingText">Обработка...</p>
-        <div id="workflowSteps" class="workflow-steps" style="display:none;">
-            <div class="step" id="step-order">📋 Создание заказа...</div>
-            <div class="step" id="step-wait">⏳ Ожидание кодов...</div>
-            <div class="step" id="step-utilisation">📤 Подача нанесения...</div>
-            <div class="step" id="step-done">✅ Готово!</div>
-        </div>
-    </div>
-
-    <script src="/assets/app.js?v=17"></script>
+    <script src="/assets/app.js?v=4"></script>
 </body>
 </html>

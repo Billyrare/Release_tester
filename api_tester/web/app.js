@@ -1,15 +1,12 @@
-// API Host
 const API_HOST = 'http://localhost:8080';
 
-// ========== ТЁМНАЯ ТЕМА ==========
+// ========== ТЕМА ==========
 (function initTheme() {
     const saved = localStorage.getItem('theme');
     if (saved === 'dark') {
         document.body.classList.add('dark');
-        document.addEventListener('DOMContentLoaded', () => {
-            const btn = document.getElementById('themeToggle');
-            if (btn) btn.textContent = '☀️ Светлая тема';
-        });
+        const btn = document.getElementById('themeToggle');
+        if (btn) btn.textContent = '☀️ Светлая тема';
     }
 })();
 
@@ -27,7 +24,7 @@ function toggleTheme() {
     }
 }
 
-// ========== ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК ==========
+// ========== ВКЛАДКИ ==========
 function switchTab(tabName, evt) {
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -35,964 +32,331 @@ function switchTab(tabName, evt) {
     (evt ? evt.target : event.target).classList.add('active');
 }
 
-// ========== ЗАГРУЗКА GTIN ПРИ ВЫБОРЕ ТОВАРНОЙ ГРУППЫ ==========
-let _cachedProductCards = {};
+// ========== GTIN LOADER ==========
+let productCardsCache = {};
 
-async function loadProductCards(productGroup) {
-    if (!productGroup) {
-        return [];
-    }
-    
-    // Проверяем кэш
-    if (_cachedProductCards[productGroup]) {
-        return _cachedProductCards[productGroup];
-    }
-    
+async function updateGtinOptions() {
+    const productGroup = document.getElementById('wfProductGroup').value;
+    const gtinSelect = document.getElementById('wfGtin');
+
+    gtinSelect.innerHTML = '<option value="">-- Выбрать GTIN --</option>';
+
+    if (!productGroup) return;
+
     try {
-        const response = await fetch(`${API_HOST}/v1/marking/product-cards?productGroup=${productGroup}`);
-        if (!response.ok) {
-            console.error('Ошибка загрузки карточек:', response.status);
-            return [];
+        if (!productCardsCache[productGroup]) {
+            const resp = await fetch(`${API_HOST}/v1/marking/product-cards?productGroup=${productGroup}`);
+            if (!resp.ok) throw new Error(`Status ${resp.status}`);
+            const data = await resp.json();
+            productCardsCache[productGroup] = data.cards || [];
         }
-        const data = await response.json();
-        const cards = data.cards || [];
-        _cachedProductCards[productGroup] = cards;
-        return cards;
+
+        productCardsCache[productGroup].forEach(card => {
+            const opt = document.createElement('option');
+            opt.value = card.gtin;
+            opt.textContent = `${card.gtin} - ${card.productName?.ru?.substring(0, 50) || 'N/A'}`;
+            gtinSelect.appendChild(opt);
+        });
     } catch (error) {
-        console.error('Ошибка загрузки карточек товаров:', error);
-        return [];
+        showError('Ошибка загрузки GTIN: ' + error.message);
     }
 }
 
-function onProductGroupChange(selectElement) {
-    const productGroup = selectElement.value;
-    const gtinSelect = document.getElementById('orderGtin');
-    
-    if (!gtinSelect) return;
-    
-    // Очищаем текущий список
-    gtinSelect.innerHTML = '<option value="">-- Выберите GTIN --</option>';
-    
-    if (!productGroup) {
-        return;
-    }
-    
-    // Показываем индикатор загрузки
-    gtinSelect.innerHTML = '<option value="">Загрузка...</option>';
-    
-    // Загружаем карточки
-    loadProductCards(productGroup).then(cards => {
-        gtinSelect.innerHTML = '<option value="">-- Выберите GTIN --</option>';
-        
-        if (cards.length === 0) {
-            gtinSelect.innerHTML += '<option value="" disabled>Нет доступных карточек</option>';
-            return;
-        }
-        
-        cards.forEach(card => {
-            const option = document.createElement('option');
-            option.value = card.gtin;
-            
-            // Формируем краткое описание
-            let description = card.gtin;
-            if (card.productName && card.productName.ru) {
-                description = card.productName.ru.substring(0, 60);
-                if (card.productName.ru.length > 60) description += '...';
-            } else if (card.productName && card.productName.en) {
-                description = card.productName.en.substring(0, 60);
-                if (card.productName.en.length > 60) description += '...';
-            }
-            
-            option.textContent = `${card.gtin} - ${description}`;
-            gtinSelect.appendChild(option);
-        });
+// ========== WORKFLOW ==========
+let isOperationRunning = false;
+const estimatedDurations = { 'workflow': 30000, 'orders': 60000, 'utilisations': 45000, 'aggregations': 35000, 'full': 180000 };
+let operationStartTime = 0;
+
+function disableAllButtons(disable) {
+    document.querySelectorAll('button').forEach(btn => {
+        btn.disabled = disable;
     });
 }
 
-// Для workflow вкладок (execute, complete)
-function onProductGroupChangeForWorkflow(selectElement, workflowType) {
-    const productGroup = selectElement.value;
-    const gtinSelect = document.getElementById(workflowType + 'Gtin');
-    
-    if (!gtinSelect) return;
-    
-    // Очищаем текущий список
-    gtinSelect.innerHTML = '<option value="">-- Выберите GTIN --</option>';
-    
-    if (!productGroup) {
+function updateProgressBar(progressBar, progressText, currentTime, startTime, estimatedDuration) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(90, (elapsed / estimatedDuration) * 100);
+    progressBar.style.width = progress + '%';
+
+    const remaining = Math.max(0, estimatedDuration - elapsed);
+    const remainingSeconds = Math.ceil(remaining / 1000);
+    const minutes = Math.floor(remainingSeconds / 60);
+    const seconds = remainingSeconds % 60;
+
+    let timeText = '';
+    if (minutes > 0) timeText = `${minutes}м ${seconds}с`;
+    else timeText = `${seconds}с`;
+
+    progressText.textContent = `⏳ Процесс выполняется... ~${timeText} осталось (${Math.round(progress)}%)`;
+}
+
+async function runWorkflow() {
+    const productGroup = document.getElementById('wfProductGroup').value;
+    const gtin = document.getElementById('wfGtin').value;
+    const quantity = parseInt(document.getElementById('wfQuantity').value);
+    const businessPlaceId = parseInt(document.getElementById('wfBusinessPlaceId').value);
+    const expirationDays = parseInt(document.getElementById('wfExpirationDays').value);
+
+    if (!productGroup || !gtin) {
+        showError('Выберите группу товара и GTIN');
         return;
     }
-    
-    // Показываем индикатор загрузки
-    gtinSelect.innerHTML = '<option value="">Загрузка...</option>';
-    
-    // Загружаем карточки
-    loadProductCards(productGroup).then(cards => {
-        gtinSelect.innerHTML = '<option value="">-- Выберите GTIN --</option>';
-        
-        if (cards.length === 0) {
-            gtinSelect.innerHTML += '<option value="" disabled>Нет доступных карточек</option>';
-            return;
+
+    if (isOperationRunning) {
+        showError('Операция уже выполняется, пожалуйста подождите');
+        return;
+    }
+
+    isOperationRunning = true;
+    disableAllButtons(true);
+
+    const progressDiv = document.getElementById('workflowProgress');
+    const progressBar = document.getElementById('wfProgressBar');
+    const progressText = document.getElementById('wfProgressText');
+
+    progressDiv.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressText.textContent = 'Запуск workflow...';
+
+    operationStartTime = Date.now();
+    const estimatedDuration = estimatedDurations['workflow'];
+    const progressInterval = setInterval(() => {
+        if (isOperationRunning && progressBar.style.width !== '100%') {
+            updateProgressBar(progressBar, progressText, Date.now(), operationStartTime, estimatedDuration);
         }
-        
-        cards.forEach(card => {
-            const option = document.createElement('option');
-            option.value = card.gtin;
-            
-            // Формируем краткое описание
-            let description = card.gtin;
-            if (card.productName && card.productName.ru) {
-                description = card.productName.ru.substring(0, 60);
-                if (card.productName.ru.length > 60) description += '...';
-            } else if (card.productName && card.productName.en) {
-                description = card.productName.en.substring(0, 60);
-                if (card.productName.en.length > 60) description += '...';
-            }
-            
-            option.textContent = `${card.gtin} - ${description}`;
-            gtinSelect.appendChild(option);
-        });
-    });
-}
-
-// Глобальная переменная для хранения кодов из файла
-let _loadedCodesFromFile = null;
-
-// Загрузка кодов из файла для агрегации
-function loadCodesFromFile(input) {
-    const file = input.files[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const content = e.target.result;
-        // Сохраняем коды в память, НЕ показываем в поле
-        _loadedCodesFromFile = content;
-        // Показываем только количество загруженных кодов
-        const lines = content.split(/\n/).filter(l => l.trim().length > 0);
-        alert(`Загружено ${lines.length} кодов из файла`);
-    };
-    reader.onerror = function() {
-        showError('Ошибка чтения файла');
-    };
-    reader.readAsText(file);
-}
-
-// ========== ЗАКАЗ КОДОВ (Создание заказа + проверка статуса) ==========
-async function createOrderAndCheck() {
-    const productGroup = document.getElementById('orderGroup').value;
-    const businessPlaceId = parseInt(document.getElementById('orderBusinessPlaceId').value);
-    const releaseMethodType = document.getElementById('orderReleaseMethodType').value;
-    const isPaid = document.getElementById('orderIsPaid').value === 'true';
-    const gtin = document.getElementById('orderGtin').value;
-    const quantity = parseInt(document.getElementById('orderQuantity').value);
-    const serialNumberType = document.getElementById('orderSerialNumberType').value;
-    const cisType = document.getElementById('orderCisType').value;
-    const expirationDays = parseInt(document.getElementById('orderExpirationDays').value);
-
-    if (!productGroup || !gtin || !quantity) {
-        showError('Заполните обязательные поля: Группа товара, GTIN, Количество');
-        return;
-    }
-
-    const payload = {
-        productGroup,
-        businessPlaceId: businessPlaceId || 1,
-        releaseMethodType,
-        isPaid,
-        products: [
-            {
-                gtin,
-                quantity,
-                serialNumberType,
-                cisType
-            }
-        ],
-        expirationDays: expirationDays || 365
-    };
+    }, 200);
 
     try {
-        showLoading(true);
-        
-        // Шаг 1: Создаём заказ
-        const createResponse = await fetch(`${API_HOST}/v1/marking/orders`, {
+        const resp = await fetch(`${API_HOST}/v1/workflow/execute`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        
-        const createData = await createResponse.json();
-        
-        if (!createResponse.ok) {
-            showLoading(false);
-            showError(`Ошибка создания заказа: ${createData.error || createResponse.statusText}`);
-            showResult('=== СОЗДАНИЕ ЗАКАЗА ===\n' + JSON.stringify(createData, null, 2), 'error');
-            return;
-        }
-        
-        // Получаем ID заказа
-        const orderId = createData.orderId || createData.order_id || createData.id;
-        if (!orderId) {
-            showLoading(false);
-            showError('Не удалось получить ID заказа из ответа');
-            showResult('=== СОЗДАНИЕ ЗАКАЗА ===\n' + JSON.stringify(createData, null, 2), 'error');
-            return;
-        }
-        
-        // // Шаг 2: Проверяем статус заказа
-        // const statusResponse = await fetch(`${API_HOST}/v1/marking/orders?orderId=${orderId}`);
-        // const statusData = await statusResponse.json();
-        
-        // showLoading(false);
-        
-        // // Формируем результат
-        // let resultText = '=== СОЗДАНИЕ ЗАКАЗА ===\n';
-        // resultText += JSON.stringify(createData, null, 2) + '\n\n';
-        // resultText += '=== ПРОВЕРКА СТАТУСА ЗАКАЗА ===\n';
-        // resultText += 'OrderId: ' + orderId + '\n';
-        // resultText += JSON.stringify(statusData, null, 2);
-        // После получения orderId:
-const panel = document.getElementById('orderStatusPanel');
-const liveDiv = document.getElementById('orderStatusLive');
-panel.style.display = 'block';
-liveDiv.innerHTML = '<p>Ожидание статуса...</p>';
-
-window._orderPollInterval = setInterval(async () => {
-    try {
-        const res = await fetch(`${API_HOST}/v1/marking/sub-orders?orderId=${orderId}&gtin=${gtin}`);
-        if (!res.ok) {
-            liveDiv.innerHTML += `<p style="color:red;">Ошибка HTTP: ${res.status}</p>`;
-            return;
-        }
-        const data = await res.json();
-        console.log('SubOrders response:', data);
-
-        if (data.error) {
-            liveDiv.innerHTML = `<p style="color:red;">Ошибка API: ${data.error}</p>`;
-            clearInterval(window._orderPollInterval);
-            return;
-        }
-
-        const info = data.subOrderInfos?.[0];
-        if (info) {
-            liveDiv.innerHTML = `
-                <p>Статус буфера: <b>${info.bufferStatus}</b></p>
-                <p>Кодов в буфере: ${info.leftInBuffer}</p>
-                <p>Заказано: ${quantity}</p>
-            `;
-            if (['READY', 'EXHAUSTED', 'ACTIVE'].includes(info.bufferStatus)) {
-                clearInterval(window._orderPollInterval);
-                liveDiv.innerHTML += `<p style="color:green;"><b>✅ Коды готовы!</b></p>`;
-            }
-            if (info.bufferStatus === 'REJECTED') {
-                clearInterval(window._orderPollInterval);
-                liveDiv.innerHTML += `<p style="color:red;"><b>❌ Заказ отклонен: ${info.rejectionReason || 'нет причины'}</b></p>`;
-            }
-        } else {
-            liveDiv.innerHTML = `<p>Ожидание подзаказа... (${new Date().toLocaleTimeString()})</p>`;
-        }
-    } catch(e) {
-        liveDiv.innerHTML = `<p style="color:red;">Ошибка запроса: ${e.message}</p>`;
-        console.error('Polling error:', e);
-    }
-}, 2000);
-
-        showLoading(false);
-        showSuccess(`Заказ создан! ID: ${orderId}. Отслеживание статуса...`);
-        showResult('=== СОЗДАНИЕ ЗАКАЗА ===\n' + JSON.stringify(createData, null, 2) + '\n\nЗаказ: ' + orderId + '\nСтатус: отслеживается...', 'success');
-
-        loadHistory();
-    } catch (error) {
-        showLoading(false);
-        showError(`Ошибка подключения: ${error.message}`);
-        showResult(error.message, 'error');
-    }
-}
-
-function stopOrderPolling() {
-    clearInterval(window._orderPollInterval);
-}
-
-// ========== ПРОГРЕСС ШАГОВ WORKFLOW ==========
-let _lastCodesForAggregation = [];
-
-function showWorkflowProgress(show) {
-    const steps = document.getElementById('workflowSteps');
-    if (steps) steps.style.display = show ? 'block' : 'none';
-    if (show) {
-        ['step-order', 'step-wait', 'step-utilisation', 'step-done'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.className = 'step';
-        });
-    }
-}
-
-function setStep(stepId) {
-    const steps = ['step-order', 'step-wait', 'step-utilisation', 'step-done'];
-    const idx = steps.indexOf(stepId);
-    steps.forEach((id, i) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        if (i < idx) el.className = 'step done';
-        else if (i === idx) el.className = 'step active';
-        else el.className = 'step';
-    });
-}
-
-// ========== БЫСТРЫЙ ЦИКЛ (ExecuteWorkflow) ==========
-async function executeWorkflow() {
-    const gtin = document.getElementById('executeGtin').value;
-    const group = document.getElementById('executeGroup').value;
-    const quantity = parseInt(document.getElementById('executeQuantity').value);
-    const expirationDays = parseInt(document.getElementById('executeExpirationDays').value);
-
-    if (!gtin || !group || !quantity) {
-        showError('Заполните все обязательные поля');
-        return;
-    }
-
-    const payload = { gtin, productGroup: group, quantity, expirationDays };
-
-    try {
-        showLoading(true, true);
-        setStep('step-order');
-
-        // Имитируем показ шагов через задержки (сервер блокирующий, шаги не real-time)
-        const stepTimer1 = setTimeout(() => setStep('step-wait'), 1500);
-        const stepTimer2 = setTimeout(() => setStep('step-utilisation'), 5000);
-
-        const response = await fetch(`${API_HOST}/v1/workflow/execute`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({
+                gtin, productGroup, quantity, businessPlaceId, expirationDays
+            })
         });
 
-        clearTimeout(stepTimer1);
-        clearTimeout(stepTimer2);
-        setStep('step-done');
-        await new Promise(r => setTimeout(r, 400));
+        const data = await resp.json();
+        clearInterval(progressInterval);
 
-        const data = await response.json();
-        showLoading(false);
+        if (!resp.ok) {
+            progressBar.style.width = '100%';
+            progressText.textContent = '❌ Ошибка выполнения';
+            showError(data.error || 'Ошибка выполнения workflow');
+            isOperationRunning = false;
+            disableAllButtons(false);
+            return;
+        }
 
-        if (!response.ok) {
-            showError(`Ошибка: ${data.error || response.statusText}`);
-            showResult(JSON.stringify(data, null, 2), 'error');
-        } else {
-            _lastCodesForAggregation = data.codes_for_aggregation || [];
-            showSuccess('Цикл выполнен успешно!');
-            showResult(JSON.stringify(data, null, 2), 'success');
-            showDownloadBtn(_lastCodesForAggregation.length > 0);
+        progressBar.style.width = '100%';
+        progressText.textContent = '✅ Успешно завершено за ' + Math.round((Date.now() - operationStartTime) / 1000) + 'с';
+
+        showResult({
+            title: '✅ Workflow успешно завершён',
+            reportId: data.reportId,
+            codesCount: data.codesForAggregation?.length || 0
+        });
+
+        setTimeout(() => {
+            progressDiv.style.display = 'none';
             loadHistory();
-            loadCodeFiles();
-        }
+            isOperationRunning = false;
+            disableAllButtons(false);
+        }, 2000);
     } catch (error) {
-        showLoading(false);
-        showError(`Ошибка подключения: ${error.message}`);
-        showResult(error.message, 'error');
+        clearInterval(progressInterval);
+        progressBar.style.width = '100%';
+        progressText.textContent = '❌ Ошибка сети';
+        showError('Ошибка: ' + error.message);
+        isOperationRunning = false;
+        disableAllButtons(false);
     }
 }
 
-// ========== ОТЧЕТ ОБ АГРЕГАЦИИ ==========
-async function reportAggregation() {
-    const businessPlaceId = parseInt(document.getElementById('aggBusinessPlaceId').value);
-    let packageCount = parseInt(document.getElementById('aggPackageCount').value);
-    if (!packageCount || packageCount < 1) {
-        packageCount = 1; // По умолчанию 1 упаковка (1 SSCC)
-    }
-    // Используем коды из файла если загружены, иначе из поля ввода
-    let codesStr = _loadedCodesFromFile || document.getElementById('aggCodes').value;
-    const serialNumber = document.getElementById('aggSerialNumber').value;
-
-    if (!businessPlaceId || !packageCount || !codesStr) {
-        showError('Заполните все обязательные поля');
-        return;
-    }
-
-    // Разделяем коды ТОЛЬКО по переносу строки (не по спецсимволам!)
-    let codes = codesStr.split(/\n/).map(c => c.trim()).filter(c => c && c.length > 0);
-    
-    // Убираем возможные BOM-символы
-    codes = codes.map(c => c.replace(/^[\uFEFF]/, '')).filter(c => c.length > 0);
-    
-    console.log('Разобрано кодов:', codes.length);
-    if (codes.length > 0) console.log('Первый код:', codes[0], 'длина:', codes[0].length);
-    if (codes.length > 1) console.log('Второй код:', codes[1], 'длина:', codes[1].length);
-    
-    // Если кодов 0 - ошибка
-    if (codes.length === 0) {
-        showError('Введите хотя бы один код');
-        return;
-    }
-    
-    const aggregationUnits = [];
-    const codesPerPack = Math.floor(codes.length / packageCount);
-    const extraCodes = codes.length % packageCount;
-    
-    let codeIndex = 0;
-    for (let i = 0; i < packageCount; i++) {
-        // Распределяем коды: первым extraCodes упаковкам даём на 1 код больше
-        const numCodes = codesPerPack + (i < extraCodes ? 1 : 0);
-        const unitCodes = codes.slice(codeIndex, codeIndex + numCodes);
-        codeIndex += numCodes;
-        
-        // Генерируем уникальный SSCC для каждой упаковки
-        let sscc = '';
-        if (serialNumber) {
-            // Если указан базовый SSCC, добавляем индекс
-            sscc = serialNumber + String(i).padStart(3, '0');
-        } else {
-            // Генерируем уникальный SSCC на основе времени и индекса
-            sscc = '00' + String(Date.now() + i).padStart(16, '0');
-        }
-        
-        aggregationUnits.push({
-            aggregationItemsCount: unitCodes.length,
-            aggregationUnitCapacity: codes.length,
-            codes: unitCodes,
-            shouldBeUnbundled: false,
-            unitSerialNumber: sscc
-        });
-    }
-
-    const payload = {
-        aggregationUnits,
-        businessPlaceId
+// ========== ТЕСТЫ ==========
+async function runTests(suiteType) {
+    const endpoints = {
+        'orders': '/v1/test/orders-suite',
+        'utilisations': '/v1/test/utilisations-suite',
+        'aggregations': '/v1/test/aggregations-suite',
+        'full': '/v1/test/full-suite'
     };
 
-    try {
-        showLoading(true);
-        const response = await fetch(`${API_HOST}/v1/workflow/report-aggregation`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        showLoading(false);
-
-        if (!response.ok) {
-            showError(`Ошибка: ${data.error || response.statusText}`);
-            showResult(JSON.stringify(data, null, 2), 'error');
-        } else {
-            showSuccess(`Отчет подан успешно! DocumentId: ${data.document_id}`);
-            showResult(JSON.stringify(data, null, 2), 'success');
-            loadHistory();
-        }
-    } catch (error) {
-        showLoading(false);
-        showError(`Ошибка подключения: ${error.message}`);
-        showResult(error.message, 'error');
-    }
-}
-
-// ========== ПОЛНЫЙ ЦИКЛ (CompleteWorkflow) ==========
-async function completeWorkflow() {
-    const gtin = document.getElementById('completeGtin').value;
-    const group = document.getElementById('completeGroup').value;
-    const quantity = parseInt(document.getElementById('completeQuantity').value);
-    const businessPlaceId = parseInt(document.getElementById('completeBusinessPlaceId').value);
-    const productionOrderId = document.getElementById('completeProductionOrderId').value;
-
-    if (!gtin || !group || !quantity || !businessPlaceId) {
-        showError('Заполните все обязательные поля');
+    const endpoint = endpoints[suiteType];
+    if (!endpoint) {
+        showError('Неизвестный тип теста');
         return;
     }
 
-    const payload = { gtin, productGroup: group, quantity, businessPlaceId, productionOrderId: productionOrderId || "", expirationDays: 365 };
-
-    try {
-        showLoading(true, true);
-        setStep('step-order');
-        const t1 = setTimeout(() => setStep('step-wait'), 1500);
-        const t2 = setTimeout(() => setStep('step-utilisation'), 5000);
-
-        const response = await fetch(`${API_HOST}/v1/workflow/complete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        clearTimeout(t1); clearTimeout(t2);
-        setStep('step-done');
-        await new Promise(r => setTimeout(r, 400));
-
-        const data = await response.json();
-        showLoading(false);
-
-        if (!response.ok) {
-            showError(`Ошибка: ${data.error || response.statusText}`);
-            showResult(JSON.stringify(data, null, 2), 'error');
-        } else {
-            _lastCodesForAggregation = data.codes_for_aggregation || [];
-            showSuccess('Полный цикл выполнен!');
-            showResult(JSON.stringify(data, null, 2), 'success');
-            showDownloadBtn(_lastCodesForAggregation.length > 0);
-            loadHistory();
-            loadCodeFiles();
-        }
-    } catch (error) {
-        showLoading(false);
-        showError(`Ошибка подключения: ${error.message}`);
-        showResult(error.message, 'error');
-    }
-}
-
-// ========== СКАЧАТЬ КОДЫ ИЗ РЕЗУЛЬТАТА ==========
-function downloadCodesFromResult() {
-    if (!_lastCodesForAggregation || _lastCodesForAggregation.length === 0) {
-        showError('Нет кодов для скачивания');
+    if (isOperationRunning) {
+        showError('Операция уже выполняется, пожалуйста подождите');
         return;
     }
-    const content = _lastCodesForAggregation.join('\n');
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `codes_${Date.now()}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-}
 
-function showDownloadBtn(show) {
-    const btn = document.getElementById('downloadCodesBtn');
-    if (btn) btn.style.display = show ? 'block' : 'none';
-}
+    isOperationRunning = true;
+    disableAllButtons(true);
 
-// ========== СПИСОК ФАЙЛОВ КОДОВ ==========
-async function loadCodeFiles() {
-    const container = document.getElementById('codeFiles');
+    const progressDiv = document.getElementById('testProgressPanel');
+    const progressBar = document.getElementById('testProgressBar');
+    const progressText = document.getElementById('testProgressText');
+
+    progressDiv.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressText.textContent = `Запуск ${suiteType} тестов...`;
+
+    operationStartTime = Date.now();
+    const estimatedDuration = estimatedDurations[suiteType] || 60000;
+    const progressInterval = setInterval(() => {
+        if (isOperationRunning && progressBar.style.width !== '100%') {
+            updateProgressBar(progressBar, progressText, Date.now(), operationStartTime, estimatedDuration);
+        }
+    }, 200);
+
     try {
-        const response = await fetch(`${API_HOST}/v1/codes/files`);
-        if (!response.ok) {
-            container.innerHTML = `<p class="placeholder">⚠️ Недоступно</p>`;
+        const resp = await fetch(`${API_HOST}${endpoint}`, { method: 'POST' });
+        const data = await resp.json();
+
+        clearInterval(progressInterval);
+
+        if (!resp.ok) {
+            progressBar.style.width = '100%';
+            progressText.textContent = '❌ Ошибка выполнения';
+            showError(data.error || 'Ошибка выполнения тестов');
+            isOperationRunning = false;
+            disableAllButtons(false);
             return;
         }
-        const data = await response.json();
-        const files = data.files || [];
-        if (files.length === 0) {
-            container.innerHTML = `<p class="placeholder">Нет сохранённых файлов</p>`;
-            return;
-        }
-        container.innerHTML = files.map(f => {
-            const kb = (f.size / 1024).toFixed(1);
-            const dt = new Date(f.created_at).toLocaleString('ru-RU');
-            return `<div class="history-item success" style="display:flex;justify-content:space-between;align-items:center;">
-                <div>
-                    <div class="history-op" style="word-break:break-all;">${f.name}</div>
-                    <div class="history-time">${dt} · ${kb} KB</div>
-                </div>
-                <a href="${API_HOST}/v1/codes/files/${encodeURIComponent(f.name)}" download="${f.name}"
-                   style="text-decoration:none;">
-                    <button class="secondary-btn" style="margin:0;">⬇️</button>
-                </a>
-            </div>`;
-        }).join('');
-    } catch (e) {
-        container.innerHTML = `<p class="placeholder">❌ Ошибка: ${e.message}</p>`;
+
+        progressBar.style.width = '100%';
+        const actualDuration = Math.round((Date.now() - operationStartTime) / 1000);
+        progressText.textContent = `✅ Завершено за ${actualDuration}с: ${data.passed}/${data.total} успешно, ${data.failed} ошибок`;
+
+        showResult({
+            title: `📊 Результаты ${suiteType}`,
+            total: data.total,
+            passed: data.passed,
+            failed: data.failed,
+            duration: actualDuration + 'сек'
+        });
+
+        setTimeout(() => {
+            progressDiv.style.display = 'none';
+            loadHistory();
+            isOperationRunning = false;
+            disableAllButtons(false);
+        }, 3000);
+    } catch (error) {
+        clearInterval(progressInterval);
+        progressBar.style.width = '100%';
+        progressText.textContent = '❌ Ошибка сети';
+        showError('Ошибка: ' + error.message);
+        isOperationRunning = false;
+        disableAllButtons(false);
     }
 }
 
 // ========== ИСТОРИЯ ==========
-let _allHistory = [];
+let allHistory = [];
 
 async function loadHistory() {
     try {
-        const response = await fetch(`${API_HOST}/v1/marking/history`);
-        
-        if (!response.ok) {
-            document.getElementById('history').innerHTML = `<p class="placeholder">⚠️ История недоступна</p>`;
-            return;
-        }
-
-        const data = await response.json();
-        _allHistory = data || [];
-        renderHistory(_allHistory);
+        const resp = await fetch(`${API_HOST}/v1/operations/history?limit=50`);
+        const data = await resp.json();
+        allHistory = data.operations || [];
+        displayHistory(allHistory);
     } catch (error) {
-        document.getElementById('history').innerHTML = `<p class="placeholder">❌ Ошибка загрузки: ${error.message}</p>`;
+        console.error('Ошибка загрузки истории:', error);
+        document.getElementById('history').innerHTML = '<p class="placeholder">Ошибка загрузки</p>';
     }
+}
+
+function displayHistory(ops) {
+    const historyDiv = document.getElementById('history');
+    if (!ops || ops.length === 0) {
+        historyDiv.innerHTML = '<p class="placeholder">История пуста</p>';
+        return;
+    }
+
+    historyDiv.innerHTML = ops.map(op => `
+        <div class="history-item" style="padding:10px; border-bottom:1px solid var(--border);">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong>${op.operationType} - ${op.productGroup}</strong>
+                <span style="color:var(--text-muted); font-size:0.8em;">${new Date(op.timestamp).toLocaleString('ru-RU')}</span>
+            </div>
+            <p style="margin:4px 0; color:var(--text-muted); font-size:0.85em;">${op.details}</p>
+        </div>
+    `).join('');
 }
 
 function filterHistory() {
-    const q = (document.getElementById('historyFilter').value || '').toLowerCase();
-    if (!q) {
-        renderHistory(_allHistory);
-        return;
-    }
-    const filtered = _allHistory.filter(item =>
-        (item.operation_type || '').toLowerCase().includes(q) ||
-        (item.product_group || '').toLowerCase().includes(q) ||
-        (item.external_id || '').toLowerCase().includes(q) ||
-        (item.status || '').toLowerCase().includes(q)
+    const query = document.getElementById('historyFilter').value.toLowerCase();
+    const filtered = allHistory.filter(op =>
+        op.operationType.toLowerCase().includes(query) ||
+        op.productGroup.toLowerCase().includes(query) ||
+        op.details.toLowerCase().includes(query)
     );
-    renderHistory(filtered);
+    displayHistory(filtered);
 }
 
-function renderHistory(items) {
-    if (!items || items.length === 0) {
-        document.getElementById('history').innerHTML = `<p class="placeholder">Нет записей</p>`;
-        return;
-    }
-    let html = '';
-    items.slice(0, 30).forEach(item => {
-        const time = new Date(item.created_at).toLocaleString('ru-RU');
-        const statusClass = (item.status || '').toUpperCase() === 'SUCCESS' ? 'success' : 'error';
-        html += `
-            <div class="history-item ${statusClass}">
-                <div class="history-time">⏰ ${time}</div>
-                <div class="history-op">${item.operation_type} (${item.product_group})</div>
-                <div style="color:var(--text-muted); font-size:0.85em; margin-top:3px;">ID: ${item.external_id || 'N/A'}</div>
-            </div>
-        `;
-    });
-    document.getElementById('history').innerHTML = html;
-}
-
-// ========== СТАТУС API ==========
-async function checkApiStatus() {
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        const response = await fetch(`${API_HOST}/health`, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        const statusElement = document.getElementById('apiStatus');
-        if (response.ok) {
-            statusElement.innerHTML = `<div class="status-content online">✅ API Online<div style="margin-top:10px;font-size:0.9em;">${API_HOST}</div></div>`;
-        } else {
-            statusElement.innerHTML = `<div class="status-content offline">❌ API Offline (${response.status})</div>`;
-        }
-    } catch (error) {
-        document.getElementById('apiStatus').innerHTML = `<div class="status-content offline">❌ API Недоступен<br><small>${error.message}</small></div>`;
-    }
-}
-
-// ========== UI ФУНКЦИИ ==========
-function showResult(content, type = 'normal') {
+// ========== РЕЗУЛЬТАТЫ ==========
+function showResult(data) {
     const resultDiv = document.getElementById('result');
-    resultDiv.innerHTML = content;
-    resultDiv.className = 'result-output ' + (type === 'error' ? 'error' : type === 'success' ? 'success' : '');
-}
+    let html = `<div style="padding:15px; background:var(--surface); border-radius:8px;">`;
 
-function showError(message) {
-    const modal = document.getElementById('errorModal');
-    document.getElementById('errorMessage').textContent = message;
-    modal.classList.add('show');
-}
+    if (data.title) html += `<h3>${data.title}</h3>`;
 
-function showSuccess(message) {
-    const modal = document.getElementById('successModal');
-    document.getElementById('successMessage').textContent = message;
-    modal.classList.add('show');
-}
+    if (data.reportId) html += `<p><strong>Report ID:</strong> ${data.reportId}</p>`;
+    if (data.codesCount) html += `<p><strong>Кодов:</strong> ${data.codesCount}</p>`;
+    if (data.total) html += `<p><strong>Тестов:</strong> ${data.total}</p>`;
+    if (data.passed) html += `<p style="color:green;"><strong>✅ Пройдено:</strong> ${data.passed}</p>`;
+    if (data.failed) html += `<p style="color:red;"><strong>❌ Ошибок:</strong> ${data.failed}</p>`;
+    if (data.duration) html += `<p><strong>Время:</strong> ${data.duration}</p>`;
 
-function showLoading(show, withSteps = false) {
-    const spinner = document.getElementById('loadingSpinner');
-    const text = document.getElementById('loadingText');
-    if (show) {
-        spinner.style.display = 'flex';
-        if (withSteps) {
-            if (text) text.textContent = 'Выполнение workflow...';
-            showWorkflowProgress(true);
-        } else {
-            if (text) text.textContent = 'Обработка...';
-            showWorkflowProgress(false);
-        }
-    } else {
-        spinner.style.display = 'none';
-        showWorkflowProgress(false);
+    html += '</div>';
+    resultDiv.innerHTML = html;
+
+    if (data.codesCount > 0) {
+        document.getElementById('downloadBtn').style.display = 'block';
     }
+}
+
+function downloadCodesFromResult() {
+    showSuccess('Скачивание кодов в разработке');
+}
+
+// ========== МОДАЛКИ ==========
+function showError(msg) {
+    document.getElementById('errorMessage').textContent = msg;
+    document.getElementById('errorModal').style.display = 'flex';
+}
+
+function showSuccess(msg) {
+    document.getElementById('successMessage').textContent = msg;
+    document.getElementById('successModal').style.display = 'flex';
 }
 
 function closeModal() {
-    document.getElementById('errorModal').classList.remove('show');
-    document.getElementById('successModal').classList.remove('show');
-}
-
-// ========== АВТОМАТИЗИРОВАННЫЕ ТЕСТЫ ==========
-
-async function runTestSuite(suiteName) {
-    const progressPanel = document.getElementById('testProgressPanel');
-    const progressBar = document.getElementById('testProgressBar');
-    const progressText = document.getElementById('testProgressText');
-
-    progressPanel.style.display = 'block';
-    progressText.textContent = `Запуск ${suiteName === 'full' ? 'всех тестов' : suiteName}...`;
-    progressBar.style.width = '10%';
-
-    try {
-        showLoading(true);
-
-        const endpoint = {
-            'orders': '/v1/test/orders-suite',
-            'utilisations': '/v1/test/utilisations-suite',
-            'marking_applications': '/v1/test/marking-applications-suite',
-            'aggregations': '/v1/test/aggregations-suite',
-            'full': '/v1/test/full-suite'
-        }[suiteName];
-
-        const response = await fetch(`${API_HOST}${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        progressBar.style.width = '50%';
-
-        const data = await response.json();
-        showLoading(false);
-
-        progressBar.style.width = '100%';
-
-        if (!response.ok) {
-            showError(`Ошибка тестирования: ${data.error || response.statusText}`);
-            progressText.textContent = `❌ Ошибка выполнения ${suiteName}`;
-            progressText.style.color = 'red';
-            return;
-        }
-
-        const runId = data.run_id;
-        const passed = data.passed || 0;
-        const failed = data.failed || 0;
-        const total = data.total || 0;
-        const duration = data.duration_sec || 0;
-        const status = data.status || 'UNKNOWN';
-
-        // Показываем результаты
-        const resultHTML = `
-            <div style="background: var(--surface); padding: 16px; border-radius: 8px; margin-top: 16px;">
-                <h3 style="margin-top: 0;">✅ Тесты завершены</h3>
-                <p><strong>Suite:</strong> ${suiteName}</p>
-                <p><strong>Status:</strong> ${status === 'SUCCESS' ? '✅ SUCCESS' : '❌ FAILED'}</p>
-                <p><strong>Всего тестов:</strong> ${total}</p>
-                <p><strong>Пройдено:</strong> <span style="color: #4caf50;">${passed}</span></p>
-                <p><strong>Ошибок:</strong> <span style="color: ${failed > 0 ? '#f44336' : '#4caf50'};">${failed}</span></p>
-                <p><strong>Время:</strong> ${duration}с</p>
-                <p><strong>ID запуска:</strong> <code>${runId}</code></p>
-                <button type="button" class="secondary-btn" onclick="loadTestDetails(${runId})">
-                    📊 Посмотреть детали
-                </button>
-            </div>
-        `;
-
-        showResult(resultHTML, status === 'SUCCESS' ? 'success' : 'error');
-        progressText.textContent = `✅ Тесты ${suiteName} завершены: ${passed}/${total} пройдено`;
-        progressText.style.color = failed === 0 ? '#4caf50' : '#f44336';
-
-        // Обновить историю
-        await loadTestHistory();
-        loadHistory();
-    } catch (error) {
-        showLoading(false);
-        showError(`Ошибка подключения: ${error.message}`);
-        progressText.textContent = `❌ Ошибка: ${error.message}`;
-        progressText.style.color = 'red';
-        progressPanel.style.display = 'block';
-    }
-}
-
-async function loadTestHistory() {
-    try {
-        const response = await fetch(`${API_HOST}/v1/test/runs?limit=10`);
-        if (!response.ok) return;
-
-        const data = await response.json();
-        const runs = data.test_runs || [];
-        console.log('Текущие тесты:', runs);
-        renderTestRunHistory(runs);
-    } catch (error) {
-        console.error('Ошибка загрузки истории тестов:', error);
-    }
-}
-
-function renderTestRunHistory(runs) {
-    const container = document.getElementById('testRunHistory');
-    if (!container) return;
-    if (!runs || runs.length === 0) {
-        container.innerHTML = '<p class="placeholder">Нет истории запусков</p>';
-        return;
-    }
-    let html = '';
-    runs.forEach(run => {
-        const statusIcon = run.status === 'SUCCESS' ? '✅' : run.status === 'RUNNING' ? '🔄' : '❌';
-        const statusColor = run.status === 'SUCCESS' ? '#4caf50' : run.status === 'RUNNING' ? '#2196f3' : '#f44336';
-        const dt = run.started_at ? new Date(run.started_at).toLocaleString('ru-RU') : '—';
-        html += `<div class="history-item ${run.status === 'SUCCESS' ? 'success' : 'error'}" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;">
-            <div>
-                <div style="font-weight:600;font-size:0.85em;">${statusIcon} ${run.suite_name} &nbsp;<span style="color:${statusColor}">${run.status}</span></div>
-                <div style="color:var(--text-muted);font-size:0.78em;">${dt} · ${run.duration_seconds || 0}с · ${run.passed_cases}✅ ${run.failed_cases}❌</div>
-            </div>
-            <button class="secondary-btn" style="margin:0;font-size:0.78em;padding:4px 8px;" onclick="loadTestDetails(${run.id})">Детали</button>
-        </div>`;
-    });
-    container.innerHTML = html;
-}
-
-// ========== ОПЕРАЦИЯ НАНЕСЕНИЯ ==========
-
-async function applyMarking(cisType) {
-    const orderId = document.getElementById('markingOrderId').value.trim();
-    const gtin = document.getElementById('markingGtin').value.trim();
-    const productGroup = document.getElementById('markingProductGroup').value;
-    const quantity = parseInt(document.getElementById('markingQuantity').value) || 1;
-    const businessPlaceId = parseInt(document.getElementById('markingBusinessPlaceId').value) || 1;
-    const releaseType = document.getElementById('markingReleaseType').value;
-    const country = document.getElementById('markingCountry').value.trim() || 'UZ';
-
-    // Валидация
-    if (!orderId || !gtin || !productGroup) {
-        showError('Заполните Order ID, GTIN и выберите группу товара');
-        return;
-    }
-
-    // Выбираем endpoint в зависимости от типа упаковки
-    const endpoint = cisType === 'kigu'
-        ? '/v1/operations/apply-marking-kigu'
-        : '/v1/operations/apply-marking-ki';
-
-    const payload = {
-        orderId: orderId,
-        gtin: gtin,
-        productGroup: productGroup,
-        quantity: quantity,
-        businessPlaceId: businessPlaceId,
-        releaseType: releaseType,
-        manufacturerCountry: country
-    };
-
-    try {
-        showLoading(true);
-        const response = await fetch(`${API_HOST}${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            showError(`Ошибка: ${data.error || 'Неизвестная ошибка'}`);
-            return;
-        }
-
-        // Формируем сообщение об успехе
-        const cisTypeText = cisType === 'kigu' ? 'КИГУ (групповая упаковка)' : 'КИ (потребительская упаковка)';
-        const resultHtml = `
-            <div style="background:#f0f8ff;border:1px solid #4caf50;border-radius:6px;padding:12px;margin:10px 0;">
-                <div style="color:#2e7d32;font-weight:bold;margin-bottom:8px;">✅ Нанесение успешно выполнено</div>
-                <div style="font-size:0.9em;color:#333;">
-                    <div><strong>Статус:</strong> ${data.status}</div>
-                    <div><strong>Report ID:</strong> <code>${data.reportId}</code></div>
-                    <div><strong>Тип упаковки:</strong> ${cisTypeText}</div>
-                    <div><strong>Кодов нанесено:</strong> ${data.codesApplied}</div>
-                    <div><strong>Товарная группа:</strong> ${data.productGroup}</div>
-                    <div><strong>Способ ввода:</strong> ${data.releaseType}</div>
-                    <div style="margin-top:10px;border-top:1px solid #ddd;padding-top:10px;">
-                        <strong>Укороченные коды (КИ):</strong>
-                        <div style="background:#fff;border:1px solid #ddd;border-radius:4px;padding:8px;max-height:150px;overflow-y:auto;font-family:monospace;font-size:0.85em;">
-                            ${data.shortCodes.slice(0, 5).join('<br>')}
-                            ${data.shortCodes.length > 5 ? `<br><em>... и ещё ${data.shortCodes.length - 5} кодов</em>` : ''}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        showResult(resultHtml, 'success');
-    } catch (error) {
-        showError(`Ошибка подключения: ${error.message}`);
-    } finally {
-        showLoading(false);
-    }
-}
-
-function escapeHtml(str) {
-    return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function getPhaseLabel(caseName) {
-    if (caseName.startsWith('wait_')) return '⏳ Ожидание статуса';
-    if (caseName.startsWith('download_')) return '📥 Выгрузка кодов';
-    if (caseName === 'check_payment_chargeId') return '💳 Проверка платежа';
-    return '📋 Создание заказов';
-}
-
-async function loadTestDetails(runId) {
-    try {
-        const response = await fetch(`${API_HOST}/v1/test/cases?run_id=${runId}`);
-        if (!response.ok) return;
-
-        const data = await response.json();
-        const testCases = data.test_cases || [];
-
-        let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <h3 style="margin:0;">Детали запуска #${runId}</h3>
-            <span style="color:var(--text-muted);font-size:0.85em;">${testCases.length} тест-кейсов</span>
-        </div>`;
-        html += '<div style="overflow-x:auto;">';
-        html += '<table style="width:100%;border-collapse:collapse;font-size:0.82em;">';
-        html += `<thead><tr style="background:var(--surface);border-bottom:2px solid var(--border);">
-            <th style="padding:7px 8px;text-align:left;white-space:nowrap;">Тест</th>
-            <th style="padding:7px 8px;text-align:left;width:80px;">Статус</th>
-            <th style="padding:7px 8px;text-align:right;width:60px;">ms</th>
-            <th style="padding:7px 8px;text-align:left;">Описание / Ошибка</th>
-        </tr></thead><tbody>`;
-
-        let currentPhase = '';
-        testCases.forEach(tc => {
-            const phase = getPhaseLabel(tc.case_name);
-            if (phase !== currentPhase) {
-                currentPhase = phase;
-                html += `<tr><td colspan="4" style="padding:5px 8px;background:var(--surface);color:var(--text-muted);font-size:0.78em;font-weight:700;border-bottom:1px solid var(--border);border-top:2px solid var(--border);">${phase}</td></tr>`;
-            }
-
-            const isPassed = tc.status === 'PASSED';
-            const statusColor = isPassed ? '#4caf50' : '#f44336';
-            const rowBg = isPassed ? '' : 'background:rgba(244,67,54,0.04);';
-            const shortName = tc.case_name.replace(/^(wait_|download_)/, '');
-
-            let infoCell = '';
-            if (tc.error_message) {
-                infoCell = `<span style="color:#f44336;word-break:break-word;">${escapeHtml(tc.error_message.substring(0, 250))}</span>`;
-            } else if (tc.description) {
-                infoCell = `<span style="color:var(--text-muted);">${escapeHtml(tc.description.substring(0, 120))}</span>`;
-            }
-
-            html += `<tr style="border-bottom:1px solid var(--border);${rowBg}">
-                <td style="padding:6px 8px;font-family:monospace;word-break:break-all;">${escapeHtml(shortName)}</td>
-                <td style="padding:6px 8px;color:${statusColor};font-weight:600;">${isPassed ? '✅' : '❌'} ${tc.status}</td>
-                <td style="padding:6px 8px;text-align:right;color:var(--text-muted);">${tc.duration_milliseconds}</td>
-                <td style="padding:6px 8px;">${infoCell}</td>
-            </tr>`;
-        });
-
-        html += '</tbody></table></div>';
-        showResult(html, 'normal');
-
-        // Прокрутить к результату
-        document.getElementById('result').scrollIntoView({behavior:'smooth', block:'nearest'});
-    } catch (error) {
-        showError(`Ошибка загрузки деталей: ${error.message}`);
-    }
+    document.getElementById('errorModal').style.display = 'none';
+    document.getElementById('successModal').style.display = 'none';
 }
 
 // ========== ИНИЦИАЛИЗАЦИЯ ==========
-document.addEventListener('DOMContentLoaded', function() {
-    // Применить сохранённую тему
-    const savedTheme = localStorage.getItem('theme');
-    const btn = document.getElementById('themeToggle');
-    if (savedTheme === 'dark' && btn) btn.textContent = '☀️ Светлая тема';
-
-    document.getElementById('executeGtin').focus();
-    checkApiStatus();
-    setInterval(checkApiStatus, 10000);
+document.addEventListener('DOMContentLoaded', () => {
     loadHistory();
-    loadCodeFiles();
-    loadTestHistory();
-    setInterval(loadHistory, 5000);
 
-    window.onclick = function(event) {
-        const errorModal = document.getElementById('errorModal');
-        const successModal = document.getElementById('successModal');
-        if (event.target === errorModal) errorModal.classList.remove('show');
-        if (event.target === successModal) successModal.classList.remove('show');
-    };
+    // Проверка статуса API
+    fetch(`${API_HOST}/health`)
+        .then(r => {
+            document.getElementById('apiStatus').innerHTML = '<p style="color:green;">✅ API доступен</p>';
+        })
+        .catch(() => {
+            document.getElementById('apiStatus').innerHTML = '<p style="color:red;">❌ API недоступен</p>';
+        });
 });
+
+// Закрытие модалей при нажатии вне
+window.onclick = (event) => {
+    const errorModal = document.getElementById('errorModal');
+    const successModal = document.getElementById('successModal');
+    if (event.target === errorModal) errorModal.style.display = 'none';
+    if (event.target === successModal) successModal.style.display = 'none';
+};
