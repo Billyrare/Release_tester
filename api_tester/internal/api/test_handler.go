@@ -448,15 +448,16 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_water_free",
 			Description: "Отчёт о нанесении бесплатной воды (GTIN: 03077972920077)",
 			Execute: func() (interface{}, error) {
-				yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
-				expirationDate := yesterday.AddDate(0, 0, 365)
+				now := time.Now()
+				productionDate := now.Add(-1 * time.Hour)
+				expirationDate := now.AddDate(0, 0, 365)
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0103077972920077TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      yesterday.Format("2006-01-02"),
-					ExpirationDate:      expirationDate.Format("2006-01-02"),
+					ProductionDate:      productionDate.Format("2006-01-02T15:04:05Z"),
+					ExpirationDate:      expirationDate.Format("2006-01-02T15:04:05Z"),
 				}
 				return h.markingService.ReportUtilisation("water", req)
 			},

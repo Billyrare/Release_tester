@@ -85,15 +85,16 @@ func (w *WorkflowService) ExecuteWorkflow(gtin string, productGroup string, quan
 	}
 
 	// 4. Формируем запрос на нанесение (Utilisation)
-	// ProductionDate = вчера (в прошлом), формат ISO8601 дата (YYYY-MM-DD)
-	// ExpirationDate = ProductionDate + дни, формат ISO8601 дата (YYYY-MM-DD)
-	yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
-	productionDate := yesterday
-	expirationDate := yesterday.AddDate(0, 0, expirationDays)
+	// ProductionDate = час назад (в прошлом), формат ISO8601 с временем (2025-01-01T08:45:02Z)
+	// ExpirationDate = ProductionDate + дни, формат ISO8601 с временем
+	// Важно: ProductionDate должна быть < текущей даты, ExpirationDate должна быть > текущей даты
+	now := time.Now()
+	productionDate := now.Add(-1 * time.Hour) // час назад
+	expirationDate := now.AddDate(0, 0, expirationDays)
 
-	prodDateStr := productionDate.Format("2006-01-02")
-	expDateStr := expirationDate.Format("2006-01-02")
-	logger.GetLogger().Infof("WORKFLOW: 📅 ProductionDate: %s (yesterday), ExpirationDate: %s (yesterday + %d days)", prodDateStr, expDateStr, expirationDays)
+	prodDateStr := productionDate.Format("2006-01-02T15:04:05Z")
+	expDateStr := expirationDate.Format("2006-01-02T15:04:05Z")
+	logger.GetLogger().Infof("WORKFLOW: 📅 ProductionDate: %s (1 час назад), ExpirationDate: %s (+%d дней)", prodDateStr, expDateStr, expirationDays)
 
 	// SeriesNumber обязателен для pharma товаров
 	seriesNumber := ""
