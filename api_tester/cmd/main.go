@@ -103,6 +103,7 @@ func main() {
 		{
 			testGroup.POST("/orders-suite", testHandler.OrdersTestSuite)
 			testGroup.POST("/utilisations-suite", testHandler.UtilisationsTestSuite)
+			testGroup.POST("/marking-applications-suite", testHandler.MarkingApplicationTestSuite)
 			testGroup.POST("/aggregations-suite", testHandler.AggregationTestSuite)
 			testGroup.POST("/full-suite", testHandler.FullTestSuite)
 			testGroup.GET("/runs", testHandler.GetTestRunHistory)

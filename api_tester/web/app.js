@@ -725,6 +725,7 @@ async function runTestSuite(suiteName) {
         const endpoint = {
             'orders': '/v1/test/orders-suite',
             'utilisations': '/v1/test/utilisations-suite',
+            'marking_applications': '/v1/test/marking-applications-suite',
             'aggregations': '/v1/test/aggregations-suite',
             'full': '/v1/test/full-suite'
         }[suiteName];

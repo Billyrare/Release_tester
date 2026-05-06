@@ -564,6 +564,206 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 	})
 }
 
+// ========== ТЕСТЫ НАНЕСЕНИЯ (С РЕАЛЬНЫМИ КОДАМИ) ==========
+
+func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
+	log.Println("INFO: Запуск Marking Application Test Suite")
+
+	runID, err := db.StartTestRun("marking_applications")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания test_run"})
+		return
+	}
+
+	startTime := time.Now()
+	passedCount := 0
+	failedCount := 0
+
+	// Phase 1: Создаем заказы для нанесения КИ и КИГУ
+	waterOrderID := ""
+	waterGTIN := GtinWaterFree
+	beerKIGUOrderID := ""
+	beerKIGUGTIN := GtinBeerGroup
+
+	// Создание заказа для воды (КИ)
+	{
+		req := models.OrderRequest{
+			ProductGroup:      "water",
+			BusinessPlaceId:   1,
+			ReleaseMethodType: "PRIMARY",
+			IsPaid:            false,
+			Products: []models.OrderProduct{
+				{Gtin: waterGTIN, Quantity: 2, CisType: "UNIT", SerialNumberType: "OPERATOR"},
+			},
+		}
+		reqBody, _ := json.Marshal(req)
+		t0 := time.Now()
+		resp, err := h.markingService.CreateOrder(req)
+		dur := time.Since(t0).Milliseconds()
+
+		if err != nil {
+			logTC(runID, "order_water_for_marking", "Создание заказа воды для нанесения (2 кода)", "FAILED", string(reqBody), "", err.Error(), dur, &passedCount, &failedCount)
+		} else {
+			respBody, _ := json.Marshal(resp)
+			logTC(runID, "order_water_for_marking", "Создание заказа воды для нанесения (2 кода)", "PASSED", string(reqBody), string(respBody), "", dur, &passedCount, &failedCount)
+			waterOrderID = resp.OrderId
+		}
+	}
+
+	// Создание заказа для пива групповой упаковки (КИГУ)
+	{
+		req := models.OrderRequest{
+			ProductGroup:      "beer",
+			BusinessPlaceId:   1,
+			ReleaseMethodType: "PRIMARY",
+			IsPaid:            true,
+			Products: []models.OrderProduct{
+				{Gtin: beerKIGUGTIN, Quantity: 2, CisType: "GROUP", SerialNumberType: "OPERATOR"},
+			},
+		}
+		reqBody, _ := json.Marshal(req)
+		t0 := time.Now()
+		resp, err := h.markingService.CreateOrder(req)
+		dur := time.Since(t0).Milliseconds()
+
+		if err != nil {
+			logTC(runID, "order_beer_group_for_marking", "Создание заказа пива групповой упаковки для нанесения (2 кода)", "FAILED", string(reqBody), "", err.Error(), dur, &passedCount, &failedCount)
+		} else {
+			respBody, _ := json.Marshal(resp)
+			logTC(runID, "order_beer_group_for_marking", "Создание заказа пива групповой упаковки для нанесения (2 кода)", "PASSED", string(reqBody), string(respBody), "", dur, &passedCount, &failedCount)
+			beerKIGUOrderID = resp.OrderId
+		}
+	}
+
+	// Phase 2: Ожидание готовности заказов
+	type orderWait struct {
+		name    string
+		orderID string
+		gtin    string
+		pg      string
+	}
+
+	ordersToWait := []orderWait{
+		{name: "water", orderID: waterOrderID, gtin: waterGTIN, pg: "water"},
+		{name: "beer_kigu", orderID: beerKIGUOrderID, gtin: beerKIGUGTIN, pg: "beer"},
+	}
+
+	var downloadedCodes map[string][]string = make(map[string][]string)
+
+	for _, ow := range ordersToWait {
+		if ow.orderID == "" {
+			continue
+		}
+
+		// Ожидание готовности
+		t0 := time.Now()
+		sub, err := h.waitForOrderReady(ow.orderID, ow.gtin, 2*time.Minute)
+		dur := time.Since(t0).Milliseconds()
+
+		if err != nil {
+			logTC(runID, "wait_"+ow.name, fmt.Sprintf("Ожидание готовности заказа %s", ow.name), "FAILED", "", "", err.Error(), dur, &passedCount, &failedCount)
+			continue
+		}
+		respBody, _ := json.Marshal(sub)
+		logTC(runID, "wait_"+ow.name, fmt.Sprintf("Ожидание готовности заказа %s", ow.name), "PASSED", "", string(respBody), "", dur, &passedCount, &failedCount)
+
+		// Выгрузка 1 кода для тестирования нанесения
+		qty := 1
+		if sub.LeftInBuffer < 1 {
+			logTC(runID, "download_"+ow.name, fmt.Sprintf("Выгрузка кода для %s", ow.name), "FAILED", "", "", "нет доступных кодов", 0, &passedCount, &failedCount)
+			continue
+		}
+
+		t0 = time.Now()
+		codes, err := h.markingService.GetCodes(ow.orderID, ow.gtin, qty, "")
+		dur = time.Since(t0).Milliseconds()
+
+		if err != nil || len(codes.Codes) == 0 {
+			logTC(runID, "download_"+ow.name, fmt.Sprintf("Выгрузка кода для %s", ow.name), "FAILED", "", "", fmt.Sprintf("ошибка выгрузки: %v", err), dur, &passedCount, &failedCount)
+			continue
+		}
+
+		respBody2, _ := json.Marshal(map[string]interface{}{
+			"packId":     codes.PackId,
+			"codesCount": len(codes.Codes),
+		})
+		logTC(runID, "download_"+ow.name, fmt.Sprintf("Выгрузка кода для %s", ow.name), "PASSED", "", string(respBody2), "", dur, &passedCount, &failedCount)
+
+		downloadedCodes[ow.name] = codes.Codes
+	}
+
+	// Phase 3: Нанесение КИ для воды
+	if len(downloadedCodes["water"]) > 0 {
+		codes := downloadedCodes["water"]
+		kiCodes := util.TruncateToKIList(codes, "water")
+
+		reqBody, _ := json.Marshal(map[string]interface{}{"codes": kiCodes, "count": len(kiCodes)})
+		t0 := time.Now()
+
+		utilizationReq := models.UtilisationRequest{
+			Sntins:              kiCodes,
+			BusinessPlaceId:     1,
+			ReleaseType:         "PRODUCTION",
+			ManufacturerCountry: "UZ",
+			ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
+			ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+		}
+
+		resp, err := h.markingService.ReportUtilisation("water", utilizationReq)
+		dur := time.Since(t0).Milliseconds()
+
+		if err != nil {
+			logTC(runID, "marking_application_ki_water", "Нанесение КИ (потребительская упаковка) для воды", "FAILED", string(reqBody), "", err.Error(), dur, &passedCount, &failedCount)
+		} else {
+			respBody, _ := json.Marshal(resp)
+			logTC(runID, "marking_application_ki_water", "Нанесение КИ (потребительская упаковка) для воды", "PASSED", string(reqBody), string(respBody), "", dur, &passedCount, &failedCount)
+		}
+	}
+
+	// Phase 4: Нанесение КИГУ для пива
+	if len(downloadedCodes["beer_kigu"]) > 0 {
+		codes := downloadedCodes["beer_kigu"]
+		kiCodes := util.TruncateToKIList(codes, "beer")
+
+		reqBody, _ := json.Marshal(map[string]interface{}{"codes": kiCodes, "count": len(kiCodes)})
+		t0 := time.Now()
+
+		utilizationReq := models.UtilisationRequest{
+			Sntins:              kiCodes,
+			BusinessPlaceId:     1,
+			ReleaseType:         "PRODUCTION",
+			ManufacturerCountry: "UZ",
+			ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
+			ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+			SeriesNumber:        "TEST-SERIES",
+		}
+
+		resp, err := h.markingService.ReportUtilisation("beer", utilizationReq)
+		dur := time.Since(t0).Milliseconds()
+
+		if err != nil {
+			logTC(runID, "marking_application_kigu_beer", "Нанесение КИГУ (групповая упаковка) для пива", "FAILED", string(reqBody), "", err.Error(), dur, &passedCount, &failedCount)
+		} else {
+			respBody, _ := json.Marshal(resp)
+			logTC(runID, "marking_application_kigu_beer", "Нанесение КИГУ (групповая упаковка) для пива", "PASSED", string(reqBody), string(respBody), "", dur, &passedCount, &failedCount)
+		}
+	}
+
+	totalTime := int(time.Since(startTime).Seconds())
+	total := passedCount + failedCount
+	db.UpdateTestRunStats(runID, total, passedCount, failedCount, 0, totalTime)
+
+	c.JSON(http.StatusOK, gin.H{
+		"run_id":       runID,
+		"suite":        "marking_applications",
+		"total":        total,
+		"passed":       passedCount,
+		"failed":       failedCount,
+		"duration_sec": totalTime,
+		"status":       map[bool]string{true: "SUCCESS", false: "FAILED"}[failedCount == 0],
+	})
+}
+
 // ========== ТЕСТЫ АГРЕГАЦИИ ==========
 
 func (h *TestHandler) AggregationTestSuite(c *gin.Context) {
