@@ -31,6 +31,41 @@ type AggregateCategory struct {
 	UnitsNumber int    `json:"unitsNumber"` // Количество кодов в потребительской упаковке
 }
 
+// PrivateCodeData - поле codeData в ответе /public/api/cod/private/codes
+type PrivateCodeData struct {
+	Code     string `json:"code"`
+	Status   string `json:"status"`
+	Template string `json:"template"`
+}
+
+// PrivateEventPayment - вложенный chargeId внутри события
+type PrivateEventPayment struct {
+	ChargeId string `json:"chargeId"`
+}
+
+// PrivateEventDescription - eventDescription внутри события истории кода
+type PrivateEventDescription struct {
+	EventPaymentShortResponse PrivateEventPayment `json:"eventPaymentShortResponse"`
+}
+
+// PrivateCodeHistoryEvent - одно событие из codeHistory
+type PrivateCodeHistoryEvent struct {
+	EventType        string                  `json:"eventType"`
+	EventDescription PrivateEventDescription `json:"eventDescription"`
+}
+
+// PrivateCodeResult - один элемент массива results
+type PrivateCodeResult struct {
+	CodeData    PrivateCodeData           `json:"codeData"`
+	CodeHistory []PrivateCodeHistoryEvent `json:"codeHistory"`
+}
+
+// PrivateCodesResponse - обёртка ответа /public/api/cod/private/codes
+type PrivateCodesResponse struct {
+	Results        []PrivateCodeResult `json:"results"`
+	ForbiddenCodes []string            `json:"forbiddenCodes"`
+}
+
 // PublicCodeInfo - структура для одного элемента ответа от /public/api/cod/public/codes
 type PublicCodeInfo struct {
 	Code                   string                  `json:"code"`

@@ -777,7 +777,7 @@ async function runTestSuite(suiteName) {
         progressText.style.color = failed === 0 ? '#4caf50' : '#f44336';
 
         // Обновить историю
-        loadTestHistory();
+        await loadTestHistory();
         loadHistory();
     } catch (error) {
         showLoading(false);
@@ -795,12 +795,123 @@ async function loadTestHistory() {
 
         const data = await response.json();
         const runs = data.test_runs || [];
-
-        // Можно отобразить историю в отдельной панели
-        log('Текущие тесты:', runs);
+        console.log('Текущие тесты:', runs);
+        renderTestRunHistory(runs);
     } catch (error) {
         console.error('Ошибка загрузки истории тестов:', error);
     }
+}
+
+function renderTestRunHistory(runs) {
+    const container = document.getElementById('testRunHistory');
+    if (!container) return;
+    if (!runs || runs.length === 0) {
+        container.innerHTML = '<p class="placeholder">Нет истории запусков</p>';
+        return;
+    }
+    let html = '';
+    runs.forEach(run => {
+        const statusIcon = run.status === 'SUCCESS' ? '✅' : run.status === 'RUNNING' ? '🔄' : '❌';
+        const statusColor = run.status === 'SUCCESS' ? '#4caf50' : run.status === 'RUNNING' ? '#2196f3' : '#f44336';
+        const dt = run.started_at ? new Date(run.started_at).toLocaleString('ru-RU') : '—';
+        html += `<div class="history-item ${run.status === 'SUCCESS' ? 'success' : 'error'}" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;">
+            <div>
+                <div style="font-weight:600;font-size:0.85em;">${statusIcon} ${run.suite_name} &nbsp;<span style="color:${statusColor}">${run.status}</span></div>
+                <div style="color:var(--text-muted);font-size:0.78em;">${dt} · ${run.duration_seconds || 0}с · ${run.passed_cases}✅ ${run.failed_cases}❌</div>
+            </div>
+            <button class="secondary-btn" style="margin:0;font-size:0.78em;padding:4px 8px;" onclick="loadTestDetails(${run.id})">Детали</button>
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
+// ========== ОПЕРАЦИЯ НАНЕСЕНИЯ ==========
+
+async function applyMarking(cisType) {
+    const orderId = document.getElementById('markingOrderId').value.trim();
+    const gtin = document.getElementById('markingGtin').value.trim();
+    const productGroup = document.getElementById('markingProductGroup').value;
+    const quantity = parseInt(document.getElementById('markingQuantity').value) || 1;
+    const businessPlaceId = parseInt(document.getElementById('markingBusinessPlaceId').value) || 1;
+    const releaseType = document.getElementById('markingReleaseType').value;
+    const country = document.getElementById('markingCountry').value.trim() || 'UZ';
+
+    // Валидация
+    if (!orderId || !gtin || !productGroup) {
+        showError('Заполните Order ID, GTIN и выберите группу товара');
+        return;
+    }
+
+    // Выбираем endpoint в зависимости от типа упаковки
+    const endpoint = cisType === 'kigu'
+        ? '/v1/operations/apply-marking-kigu'
+        : '/v1/operations/apply-marking-ki';
+
+    const payload = {
+        orderId: orderId,
+        gtin: gtin,
+        productGroup: productGroup,
+        quantity: quantity,
+        businessPlaceId: businessPlaceId,
+        releaseType: releaseType,
+        manufacturerCountry: country
+    };
+
+    try {
+        showLoading(true);
+        const response = await fetch(`${API_HOST}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            showError(`Ошибка: ${data.error || 'Неизвестная ошибка'}`);
+            return;
+        }
+
+        // Формируем сообщение об успехе
+        const cisTypeText = cisType === 'kigu' ? 'КИГУ (групповая упаковка)' : 'КИ (потребительская упаковка)';
+        const resultHtml = `
+            <div style="background:#f0f8ff;border:1px solid #4caf50;border-radius:6px;padding:12px;margin:10px 0;">
+                <div style="color:#2e7d32;font-weight:bold;margin-bottom:8px;">✅ Нанесение успешно выполнено</div>
+                <div style="font-size:0.9em;color:#333;">
+                    <div><strong>Статус:</strong> ${data.status}</div>
+                    <div><strong>Report ID:</strong> <code>${data.reportId}</code></div>
+                    <div><strong>Тип упаковки:</strong> ${cisTypeText}</div>
+                    <div><strong>Кодов нанесено:</strong> ${data.codesApplied}</div>
+                    <div><strong>Товарная группа:</strong> ${data.productGroup}</div>
+                    <div><strong>Способ ввода:</strong> ${data.releaseType}</div>
+                    <div style="margin-top:10px;border-top:1px solid #ddd;padding-top:10px;">
+                        <strong>Укороченные коды (КИ):</strong>
+                        <div style="background:#fff;border:1px solid #ddd;border-radius:4px;padding:8px;max-height:150px;overflow-y:auto;font-family:monospace;font-size:0.85em;">
+                            ${data.shortCodes.slice(0, 5).join('<br>')}
+                            ${data.shortCodes.length > 5 ? `<br><em>... и ещё ${data.shortCodes.length - 5} кодов</em>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        showResult(resultHtml, 'success');
+    } catch (error) {
+        showError(`Ошибка подключения: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
+}
+
+function escapeHtml(str) {
+    return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function getPhaseLabel(caseName) {
+    if (caseName.startsWith('wait_')) return '⏳ Ожидание статуса';
+    if (caseName.startsWith('download_')) return '📥 Выгрузка кодов';
+    if (caseName === 'check_payment_chargeId') return '💳 Проверка платежа';
+    return '📋 Создание заказов';
 }
 
 async function loadTestDetails(runId) {
@@ -811,28 +922,52 @@ async function loadTestDetails(runId) {
         const data = await response.json();
         const testCases = data.test_cases || [];
 
-        // Формируем детальный отчет
-        let detailsHTML = `<h3>Детали тестового запуска #${runId}</h3>`;
-        detailsHTML += '<table style="width:100%; border-collapse:collapse;">';
-        detailsHTML += '<tr style="background:var(--surface); border-bottom:1px solid var(--border);">';
-        detailsHTML += '<th style="padding:8px; text-align:left;">Тест</th>';
-        detailsHTML += '<th style="padding:8px; text-align:left;">Статус</th>';
-        detailsHTML += '<th style="padding:8px; text-align:left;">Время (ms)</th>';
-        detailsHTML += '</tr>';
+        let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h3 style="margin:0;">Детали запуска #${runId}</h3>
+            <span style="color:var(--text-muted);font-size:0.85em;">${testCases.length} тест-кейсов</span>
+        </div>`;
+        html += '<div style="overflow-x:auto;">';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:0.82em;">';
+        html += `<thead><tr style="background:var(--surface);border-bottom:2px solid var(--border);">
+            <th style="padding:7px 8px;text-align:left;white-space:nowrap;">Тест</th>
+            <th style="padding:7px 8px;text-align:left;width:80px;">Статус</th>
+            <th style="padding:7px 8px;text-align:right;width:60px;">ms</th>
+            <th style="padding:7px 8px;text-align:left;">Описание / Ошибка</th>
+        </tr></thead><tbody>`;
 
+        let currentPhase = '';
         testCases.forEach(tc => {
-            const statusIcon = tc.status === 'PASSED' ? '✅' : '❌';
-            const statusColor = tc.status === 'PASSED' ? '#4caf50' : '#f44336';
-            detailsHTML += `<tr style="border-bottom:1px solid var(--border);">`;
-            detailsHTML += `<td style="padding:8px;">${tc.case_name}</td>`;
-            detailsHTML += `<td style="padding:8px; color:${statusColor};">${statusIcon} ${tc.status}</td>`;
-            detailsHTML += `<td style="padding:8px;">${tc.duration_milliseconds}ms</td>`;
-            detailsHTML += `</tr>`;
+            const phase = getPhaseLabel(tc.case_name);
+            if (phase !== currentPhase) {
+                currentPhase = phase;
+                html += `<tr><td colspan="4" style="padding:5px 8px;background:var(--surface);color:var(--text-muted);font-size:0.78em;font-weight:700;border-bottom:1px solid var(--border);border-top:2px solid var(--border);">${phase}</td></tr>`;
+            }
+
+            const isPassed = tc.status === 'PASSED';
+            const statusColor = isPassed ? '#4caf50' : '#f44336';
+            const rowBg = isPassed ? '' : 'background:rgba(244,67,54,0.04);';
+            const shortName = tc.case_name.replace(/^(wait_|download_)/, '');
+
+            let infoCell = '';
+            if (tc.error_message) {
+                infoCell = `<span style="color:#f44336;word-break:break-word;">${escapeHtml(tc.error_message.substring(0, 250))}</span>`;
+            } else if (tc.description) {
+                infoCell = `<span style="color:var(--text-muted);">${escapeHtml(tc.description.substring(0, 120))}</span>`;
+            }
+
+            html += `<tr style="border-bottom:1px solid var(--border);${rowBg}">
+                <td style="padding:6px 8px;font-family:monospace;word-break:break-all;">${escapeHtml(shortName)}</td>
+                <td style="padding:6px 8px;color:${statusColor};font-weight:600;">${isPassed ? '✅' : '❌'} ${tc.status}</td>
+                <td style="padding:6px 8px;text-align:right;color:var(--text-muted);">${tc.duration_milliseconds}</td>
+                <td style="padding:6px 8px;">${infoCell}</td>
+            </tr>`;
         });
 
-        detailsHTML += '</table>';
+        html += '</tbody></table></div>';
+        showResult(html, 'normal');
 
-        showResult(detailsHTML, 'normal');
+        // Прокрутить к результату
+        document.getElementById('result').scrollIntoView({behavior:'smooth', block:'nearest'});
     } catch (error) {
         showError(`Ошибка загрузки деталей: ${error.message}`);
     }
@@ -850,6 +985,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(checkApiStatus, 10000);
     loadHistory();
     loadCodeFiles();
+    loadTestHistory();
     setInterval(loadHistory, 5000);
 
     window.onclick = function(event) {

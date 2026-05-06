@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go build *)"
+      "Bash(go build *)",
+      "Bash(go test *)",
+      "Bash(go vet *)",
+      "Bash(go run *)",
+      "Bash(powershell *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat: Add marking application operations for KI and KIGU packaging *)"
     ]
   }
 }

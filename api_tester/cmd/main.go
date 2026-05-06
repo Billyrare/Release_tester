@@ -108,6 +108,13 @@ func main() {
 			testGroup.GET("/runs", testHandler.GetTestRunHistory)
 			testGroup.GET("/cases", testHandler.GetTestCases)
 		}
+
+		// ========== ОПЕРАЦИИ НАНЕСЕНИЯ ==========
+		{
+			operationsGroup := v1.Group("/operations")
+			operationsGroup.POST("/apply-marking-ki", testHandler.ApplyMarkingKI)
+			operationsGroup.POST("/apply-marking-kigu", testHandler.ApplyMarkingKIGU)
+		}
 	}
 
 	// Файлы кодов

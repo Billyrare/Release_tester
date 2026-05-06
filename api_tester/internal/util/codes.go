@@ -2,41 +2,72 @@ package util
 
 import "strings"
 
-// ExtractKI извлекает Код Идентификации (31-38 символов) из полного Кода Маркировки
-// Для бытовой техники (appliances) мы отсекаем криптохвост (все что после \x1d93)
+// kiLengths — длина КИ (Кода Идентификации) в символах по товарным группам.
+// КИ = полный КМ без GS-разделителя и криптохвоста (AI 93).
+// Источник: таблица форматов ASL Belgisi.
+var kiLengths = map[string]int{
+	"tobacco":      21,
+	"alcohol":      25,
+	"beer":         25,
+	"appliances":   38,
+	"pharma":       31, // лекарственные препараты
+	"medicals":     31, // медицинские изделия
+	"water":        31,
+	"vegetableoil": 31,
+	"bio":          31,
+	"fertilizers":  31,
+	// antiseptic — нет данных о длине КИ
+}
+
+// TruncateToKI обрезает полный КМ (Код Маркировки) до формата КИ (Код Идентификации).
+// 1. Режет по точной КИ-длине для товарной группы.
+// 2. Убирает GS-символ (\x1d / ) — он никогда не должен быть внутри КИ.
+func TruncateToKI(code, productGroup string) string {
+	if kiLen, ok := kiLengths[productGroup]; ok {
+		if len(code) > kiLen {
+			code = code[:kiLen]
+		}
+	} else {
+		// Fallback: ищем GS + "93" (начало криптохвоста)
+		code = ExtractKI(code)
+	}
+	// Убираем GS-разделитель (0x1D) на случай если он попал в результат
+	return strings.ReplaceAll(code, "\x1d", "")
+}
+
+// TruncateToKIList конвертирует массив полных КМ в массив КИ для заданной товарной группы.
+func TruncateToKIList(codes []string, productGroup string) []string {
+	result := make([]string, len(codes))
+	for i, c := range codes {
+		result[i] = TruncateToKI(c, productGroup)
+	}
+	return result
+}
+
+// ExtractKI извлекает КИ из полного КМ через поиск GS-разделителя перед криптохвостом.
+// Используется как fallback когда productGroup неизвестен.
 func ExtractKI(fullCode string) string {
-	// Ищем разделитель группы криптохвоста \x1d93
-	// \x1d - это тот самый символ GS (Group Separator)
-	index := strings.Index(fullCode, "\x1d93")
-	if index != -1 {
-		return fullCode[:index]
+	// GS (0x1D) + "93" — стандартное начало криптохвоста
+	if idx := strings.Index(fullCode, "\x1d93"); idx != -1 {
+		return fullCode[:idx]
 	}
-
-	// Если спецсимвола нет, пробуем найти просто "93" как текст (иногда так бывает в JSON)
-	index = strings.Index(fullCode, "93")
-	if index != -1 && len(fullCode) > 31 {
-		return fullCode[:index]
+	// Иногда GS приходит как экранированный unicode 
+	if idx := strings.Index(fullCode, "93"); idx != -1 {
+		return fullCode[:idx]
 	}
-
-	// Если ничего не нашли, а код длинный (92 симв),
-	// для бытовой техники КИ обычно занимает первые 31 символ (01 + 14 + 21 + 13)
-	// Но лучше обрезать по стандарту до 31-38 символов.
+	// Если код длиннее максимально известного КИ — обрезаем до 38
 	if len(fullCode) > 38 {
-		return fullCode[:31]
+		return fullCode[:38]
 	}
-
 	return fullCode
 }
 
-// ConvertToKIList преобразует массив полных КМ в массив КИ
+// ConvertToKIList — устаревший вариант, оставлен для совместимости.
+// Используйте TruncateToKIList с явным productGroup.
 func ConvertToKIList(codes []string) []string {
-	kiList := make([]string, len(codes))
+	result := make([]string, len(codes))
 	for i, code := range codes {
-		if len(code) > 38 {
-			kiList[i] = code[:38]
-		} else {
-			kiList[i] = code
-		}
+		result[i] = ExtractKI(code)
 	}
-	return kiList
+	return result
 }

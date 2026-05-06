@@ -22,7 +22,7 @@ import (
 // MarkingService определяет интерфейс для работы с API маркировки
 type MarkingService interface {
 	GetPublicCodesInfo(codes []string) ([]models.PublicCodeInfo, error)
-	// --- НОВЫЙ МЕТОД ---
+	GetPrivateCodesInfo(codes []string) ([]models.PrivateCodeResult, error)
 	CreateOrder(order models.OrderRequest) (*models.OrderResponse, error)
 
 	GetOrders(filters map[string]string) (*models.OrderListResponse, error)
@@ -110,6 +110,49 @@ func (s *markingService) GetPublicCodesInfo(codes []string) ([]models.PublicCode
 	}
 
 	return responseData, nil
+}
+
+// GetPrivateCodesInfo - получение приватной информации о кодах (включая chargeId)
+// URL: POST /public/api/cod/private/codes
+// Ответ: {"results": [...], "forbiddenCodes": [...]}
+func (s *markingService) GetPrivateCodesInfo(codes []string) ([]models.PrivateCodeResult, error) {
+	requestBody := models.PublicCodesRequest{Codes: codes}
+
+	var jsonBody bytes.Buffer
+	encoder := json.NewEncoder(&jsonBody)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(requestBody); err != nil {
+		return nil, fmt.Errorf("ошибка кодирования: %w", err)
+	}
+
+	requestURL := fmt.Sprintf("%s/public/api/cod/private/codes", s.cfg.AslApiURL)
+	req, err := http.NewRequest("POST", requestURL, &jsonBody)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", s.cfg.AslApiToken))
+
+	log.Printf("INFO: Запрос private codes info для %d кодов: %s", len(codes), requestURL)
+
+	resp, err := s.doAslRequest(req, "/public/api/cod/private/codes")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := ioutil.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ошибка API (Status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var wrapper models.PrivateCodesResponse
+	if err := json.Unmarshal(bodyBytes, &wrapper); err != nil {
+		return nil, fmt.Errorf("ошибка разбора ответа: %w (body: %s)", err, string(bodyBytes))
+	}
+
+	log.Printf("INFO: Получена private info для %d кодов (forbiddenCodes: %d)", len(wrapper.Results), len(wrapper.ForbiddenCodes))
+	return wrapper.Results, nil
 }
 
 // --- НОВАЯ РЕАЛИЗАЦИЯ: CreateOrder ---
