@@ -233,18 +233,23 @@ func GetTestRunHistory(limit int) ([]map[string]interface{}, error) {
 	for rows.Next() {
 		var id, totalCases, passedCases, failedCases, skippedCases int
 		var durationSec sql.NullInt64
-		var suiteName, status, startedAt, completedAt, errorMsg string
-		var completedAtNull sql.NullString
+		var suiteName, status, startedAt string
+		var completedAtNull, errorMsgNull sql.NullString
 
 		if err := rows.Scan(&id, &suiteName, &status, &totalCases, &passedCases,
-			&failedCases, &skippedCases, &startedAt, &completedAtNull, &durationSec, &errorMsg); err != nil {
+			&failedCases, &skippedCases, &startedAt, &completedAtNull, &durationSec, &errorMsgNull); err != nil {
 			log.Printf("ERROR: Ошибка сканирования: %v", err)
 			continue
 		}
 
-		completedAt = ""
+		completedAt := ""
 		if completedAtNull.Valid {
 			completedAt = completedAtNull.String
+		}
+
+		errorMsg := ""
+		if errorMsgNull.Valid {
+			errorMsg = errorMsgNull.String
 		}
 
 		item := map[string]interface{}{
@@ -286,12 +291,18 @@ func GetTestCasesByRunID(runID int64) ([]map[string]interface{}, error) {
 	for rows.Next() {
 		var id, runID int64
 		var durationMs int
-		var caseName, description, status, requestBody, responseBody, errorMsg, createdAt string
+		var caseName, description, status, requestBody, responseBody, createdAt string
+		var errorMsgNull sql.NullString
 
 		if err := rows.Scan(&id, &runID, &caseName, &description, &status, &requestBody,
-			&responseBody, &errorMsg, &durationMs, &createdAt); err != nil {
+			&responseBody, &errorMsgNull, &durationMs, &createdAt); err != nil {
 			log.Printf("ERROR: Ошибка сканирования test_case: %v", err)
 			continue
+		}
+
+		errorMsg := ""
+		if errorMsgNull.Valid {
+			errorMsg = errorMsgNull.String
 		}
 
 		item := map[string]interface{}{
