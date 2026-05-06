@@ -115,6 +115,7 @@ func main() {
 			operationsGroup := v1.Group("/operations")
 			operationsGroup.POST("/apply-marking-ki", testHandler.ApplyMarkingKI)
 			operationsGroup.POST("/apply-marking-kigu", testHandler.ApplyMarkingKIGU)
+			operationsGroup.GET("/history", testHandler.GetOperationHistory)
 		}
 	}
 

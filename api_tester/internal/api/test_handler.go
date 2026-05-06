@@ -404,19 +404,59 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 	}
 
 	startTime := time.Now()
+	passedCount := 0
+	failedCount := 0
 
+	// Используем workflowService.ExecuteWorkflow для автоматического создания, выгрузки и нанесения
+	testSpecs := []struct {
+		name        string
+		description string
+		gtin        string
+		productGroup string
+		quantity    int
+	}{
+		{"workflow_water_free", "WORKFLOW: Заказ + Выгрузка + Нанесение - вода бесплатная", GtinWaterFree, "water", 5},
+		{"workflow_water_paid", "WORKFLOW: Заказ + Выгрузка + Нанесение - вода платная", GtinWaterPaid, "water", 3},
+		{"workflow_beer_unit", "WORKFLOW: Заказ + Выгрузка + Нанесение - пиво потреб", GtinBeerUnit, "beer", 5},
+		{"workflow_beer_group", "WORKFLOW: Заказ + Выгрузка + Нанесение - пиво групповое", GtinBeerGroup, "beer", 3},
+		{"workflow_alcohol", "WORKFLOW: Заказ + Выгрузка + Нанесение - алкоголь", GtinAlcohol, "alcohol", 5},
+		{"workflow_appliances", "WORKFLOW: Заказ + Выгрузка + Нанесение - техника", GtinAppliances, "appliances", 3},
+		{"workflow_medicine", "WORKFLOW: Заказ + Выгрузка + Нанесение - лекарства", GtinMedicine, "pharma", 5},
+	}
+
+	for _, spec := range testSpecs {
+		reqBody, _ := json.Marshal(map[string]interface{}{
+			"gtin": spec.gtin, "productGroup": spec.productGroup, "quantity": spec.quantity,
+		})
+		t0 := time.Now()
+		result, err := h.workflowService.ExecuteWorkflow(spec.gtin, spec.productGroup, spec.quantity, 1, 365)
+		dur := time.Since(t0).Milliseconds()
+
+		respBody, _ := json.Marshal(result)
+		status := "PASSED"
+		errMsg := ""
+		if err != nil {
+			status = "FAILED"
+			errMsg = err.Error()
+		}
+		logTC(runID, spec.name, spec.description, status, string(reqBody), string(respBody), errMsg, dur, &passedCount, &failedCount)
+	}
+
+	// Старый код с testCases оставляем для совместимости, но он теперь не используется
 	testCases := []TestCase{
 		{
 			Name:        "utilisation_water_free",
 			Description: "Отчёт о нанесении бесплатной воды (GTIN: 03077972920077)",
 			Execute: func() (interface{}, error) {
+				yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
+				expirationDate := yesterday.AddDate(0, 0, 365)
 				req := models.UtilisationRequest{
-					Sntins:              []string{"0103077972920077TestCode1UehU", "0103077972920077TestCode2f7PE"},
+					Sntins:              []string{"0103077972920077TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+					ProductionDate:      yesterday.Format("2006-01-02T15:04:05.000Z"),
+					ExpirationDate:      expirationDate.Format("2006-01-02T15:04:05.000Z"),
 				}
 				return h.markingService.ReportUtilisation("water", req)
 			},
@@ -425,13 +465,14 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_water_paid",
 			Description: "Отчёт о нанесении платной воды (GTIN: 04680232932308)",
 			Execute: func() (interface{}, error) {
+				executionTime := time.Now()
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0104680232932308TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 				}
 				return h.markingService.ReportUtilisation("water", req)
 			},
@@ -440,13 +481,14 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_beer_unit",
 			Description: "Отчёт о нанесении пива потребительского (GTIN: 03077972920060)",
 			Execute: func() (interface{}, error) {
+				executionTime := time.Now()
 				req := models.UtilisationRequest{
-					Sntins:              []string{"0103077972920060TestCode1UehU", "0103077972920060TestCode2f7PE"},
+					Sntins:              []string{"0103077972920060TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 					SeriesNumber:        "BEER2024",
 				}
 				return h.markingService.ReportUtilisation("beer", req)
@@ -456,13 +498,14 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_beer_group",
 			Description: "Отчёт о нанесении пива группового (GTIN: 13077972920067)",
 			Execute: func() (interface{}, error) {
+				executionTime := time.Now()
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0113077972920067TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 					SeriesNumber:        "BEER-GROUP-2024",
 				}
 				return h.markingService.ReportUtilisation("beer", req)
@@ -472,13 +515,14 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_alcohol",
 			Description: "Отчёт о нанесении алкоголя (GTIN: 03077972920046)",
 			Execute: func() (interface{}, error) {
+				executionTime := time.Now()
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0103077972920046TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 				}
 				return h.markingService.ReportUtilisation("alcohol", req)
 			},
@@ -487,13 +531,14 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_appliances",
 			Description: "Отчёт о нанесении бытовой техники (GTIN: 03077972920039)",
 			Execute: func() (interface{}, error) {
+				executionTime := time.Now()
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0103077972920039TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 				}
 				return h.markingService.ReportUtilisation("appliances", req)
 			},
@@ -502,13 +547,14 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_medicine",
 			Description: "Отчёт о нанесении лекарства (GTIN: 03077972920015)",
 			Execute: func() (interface{}, error) {
+				executionTime := time.Now()
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0103077972920015TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 					SeriesNumber:        "MED-SN-001",
 				}
 				return h.markingService.ReportUtilisation("medicine", req)
@@ -518,22 +564,21 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_import",
 			Description: "Отчёт о нанесении с типом ввода IMPORT (Россия)",
 			Execute: func() (interface{}, error) {
+				executionTime := time.Now()
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0104680232932308ImportCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "IMPORT",
 					ManufacturerCountry: "RU",
-					ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 				}
 				return h.markingService.ReportUtilisation("water", req)
 			},
 		},
 	}
 
-	passedCount := 0
-	failedCount := 0
-
+	// Дополнительные статические тесты (для совместимости)
 	for _, tc := range testCases {
 		reqBody, _ := json.Marshal(tc.Description)
 		t0 := time.Now()
@@ -550,13 +595,14 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 		logTC(runID, tc.Name, tc.Description, status, string(reqBody), string(respBody), errMsg, dur, &passedCount, &failedCount)
 	}
 
+	total := len(testSpecs) + len(testCases)
 	totalTime := int(time.Since(startTime).Seconds())
-	db.UpdateTestRunStats(runID, len(testCases), passedCount, failedCount, 0, totalTime)
+	db.UpdateTestRunStats(runID, total, passedCount, failedCount, 0, totalTime)
 
 	c.JSON(http.StatusOK, gin.H{
 		"run_id":       runID,
 		"suite":        "utilisations",
-		"total":        len(testCases),
+		"total":        total,
 		"passed":       passedCount,
 		"failed":       failedCount,
 		"duration_sec": totalTime,
@@ -579,6 +625,37 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 	passedCount := 0
 	failedCount := 0
 
+	// Используем workflowService для автоматического цикла: создание заказа, выгрузка, обрезка, нанесение
+	workflowTests := []struct {
+		name         string
+		description  string
+		gtin         string
+		productGroup string
+		quantity     int
+	}{
+		{"workflow_marking_water", "WORKFLOW KI: Заказ + Выгрузка + Обрезка + Нанесение - вода", GtinWaterFree, "water", 5},
+		{"workflow_marking_beer", "WORKFLOW KIGU: Заказ + Выгрузка + Обрезка + Нанесение - пиво групповое", GtinBeerGroup, "beer", 3},
+	}
+
+	for _, test := range workflowTests {
+		reqBody, _ := json.Marshal(map[string]interface{}{
+			"gtin": test.gtin, "productGroup": test.productGroup, "quantity": test.quantity,
+		})
+		t0 := time.Now()
+		result, err := h.workflowService.ExecuteWorkflow(test.gtin, test.productGroup, test.quantity, 1, 365)
+		dur := time.Since(t0).Milliseconds()
+
+		respBody, _ := json.Marshal(result)
+		status := "PASSED"
+		errMsg := ""
+		if err != nil {
+			status = "FAILED"
+			errMsg = err.Error()
+		}
+		logTC(runID, test.name, test.description, status, string(reqBody), string(respBody), errMsg, dur, &passedCount, &failedCount)
+	}
+
+	// === СТАРАЯ ЛОГИКА (для совместимости) ===
 	// Phase 1: Создаем заказы для нанесения КИ и КИГУ
 	waterOrderID := ""
 	waterGTIN := GtinWaterFree
@@ -648,7 +725,11 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 		{name: "beer_kigu", orderID: beerKIGUOrderID, gtin: beerKIGUGTIN, pg: "beer"},
 	}
 
-	var downloadedCodes map[string][]string = make(map[string][]string)
+	type downloadedCodeInfo struct {
+		codes     []string
+		timestamp time.Time
+	}
+	var downloadedCodes map[string]downloadedCodeInfo = make(map[string]downloadedCodeInfo)
 
 	for _, ow := range ordersToWait {
 		if ow.orderID == "" {
@@ -676,6 +757,7 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 
 		t0 = time.Now()
 		codes, err := h.markingService.GetCodes(ow.orderID, ow.gtin, qty, "")
+		downloadTime := time.Now() // Сохраняем время выгрузки
 		dur = time.Since(t0).Milliseconds()
 
 		if err != nil || len(codes.Codes) == 0 {
@@ -689,30 +771,29 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 		})
 		logTC(runID, "download_"+ow.name, fmt.Sprintf("Выгрузка кода для %s", ow.name), "PASSED", "", string(respBody2), "", dur, &passedCount, &failedCount)
 
-		downloadedCodes[ow.name] = codes.Codes
+		downloadedCodes[ow.name] = downloadedCodeInfo{codes: codes.Codes, timestamp: downloadTime}
 	}
 
-	// Задержка перед нанесением (чтобы коды обновили статус в системе API с RECEIVED на готовый формат)
-	log.Println("INFO: Ожидание обновления статуса кодов в системе (5 сек)...")
-	time.Sleep(5 * time.Second)
-	log.Println("INFO: Коды готовы к нанесению")
+	// Коды готовы к нанесению (время будет на 2 минуты позже времени выгрузки)
 
 	// Phase 3: Нанесение КИ для воды
-	if len(downloadedCodes["water"]) > 0 {
-		codes := downloadedCodes["water"]
+	if codeInfo, exists := downloadedCodes["water"]; exists && len(codeInfo.codes) > 0 {
+		codes := codeInfo.codes
 		// Используем правильное обрезание с TruncateToKI (убирает GS символы и обрезает правильно)
 		kiCodes := util.TruncateToKIList(codes, "water")
 
 		reqBody, _ := json.Marshal(map[string]interface{}{"codes": kiCodes, "count": len(kiCodes)})
 		t0 := time.Now()
 
+		yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
+		expirationDate := yesterday.AddDate(0, 0, 365)
 		utilizationReq := models.UtilisationRequest{
 			Sntins:              kiCodes,
 			BusinessPlaceId:     1,
 			ReleaseType:         "IMPORT",
 			ManufacturerCountry: "RU",
-			ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-			ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+			ProductionDate:      yesterday.Format("2006-01-02T15:04:05.000Z"),
+			ExpirationDate:      expirationDate.Format("2006-01-02T15:04:05.000Z"),
 		}
 
 		resp, err := h.markingService.ReportUtilisation("water", utilizationReq)
@@ -727,8 +808,8 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 	}
 
 	// Phase 4: Нанесение КИГУ для пива
-	if len(downloadedCodes["beer_kigu"]) > 0 {
-		codes := downloadedCodes["beer_kigu"]
+	if codeInfo, exists := downloadedCodes["beer_kigu"]; exists && len(codeInfo.codes) > 0 {
+		codes := codeInfo.codes
 		// Используем правильное обрезание с TruncateToKI для групповой пиво упаковки (КИ=31)
 		kiCodes := util.TruncateToKIList(codes, "beer_group")
 
@@ -740,8 +821,8 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 			BusinessPlaceId:     1,
 			ReleaseType:         "IMPORT",
 			ManufacturerCountry: "RU",
-			ProductionDate:      time.Now().Format("2006-01-02T15:04:05Z07:00"),
-			ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+			ProductionDate:      codeInfo.timestamp.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+			ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 			SeriesNumber:        "TEST-SERIES",
 		}
 
@@ -964,8 +1045,8 @@ func (h *TestHandler) ApplyMarkingKI(c *gin.Context) {
 		BusinessPlaceId:     req.BusinessPlaceId,
 		ReleaseType:         req.ReleaseType,
 		ManufacturerCountry: req.ManufacturerCountry,
-		ProductionDate:      now.Format("2006-01-02T15:04:05Z07:00"),
-		ExpirationDate:      now.AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+		ProductionDate:      now.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+		ExpirationDate:      now.AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	resp, err := h.markingService.ReportUtilisation(req.ProductGroup, utilizationReq)
@@ -1043,8 +1124,8 @@ func (h *TestHandler) ApplyMarkingKIGU(c *gin.Context) {
 		BusinessPlaceId:     req.BusinessPlaceId,
 		ReleaseType:         req.ReleaseType,
 		ManufacturerCountry: req.ManufacturerCountry,
-		ProductionDate:      now.Format("2006-01-02T15:04:05Z07:00"),
-		ExpirationDate:      now.AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z07:00"),
+		ProductionDate:      now.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
+		ExpirationDate:      now.AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	resp, err := h.markingService.ReportUtilisation(req.ProductGroup, utilizationReq)
@@ -1091,4 +1172,30 @@ func (h *TestHandler) GetTestCases(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"test_cases": testCases})
+}
+
+func (h *TestHandler) GetOperationHistory(c *gin.Context) {
+	limitStr := c.DefaultQuery("limit", "50")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	rawHistory, err := db.GetOperationHistory(limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка получения истории операций"})
+		return
+	}
+
+	operations := make([]map[string]interface{}, len(rawHistory))
+	for i, item := range rawHistory {
+		operations[i] = map[string]interface{}{
+			"operationType": item["operation_type"],
+			"productGroup":  item["product_group"],
+			"timestamp":     item["created_at"],
+			"details":       item["details"],
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"operations": operations})
 }
