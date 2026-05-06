@@ -455,8 +455,8 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      yesterday.Format("2006-01-02T15:04:05.000Z"),
-					ExpirationDate:      expirationDate.Format("2006-01-02T15:04:05.000Z"),
+					ProductionDate:      yesterday.Format("2006-01-02"),
+					ExpirationDate:      expirationDate.Format("2006-01-02"),
 				}
 				return h.markingService.ReportUtilisation("water", req)
 			},
@@ -465,14 +465,15 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_water_paid",
 			Description: "Отчёт о нанесении платной воды (GTIN: 04680232932308)",
 			Execute: func() (interface{}, error) {
-				executionTime := time.Now()
+				yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
+				expirationDate := yesterday.AddDate(0, 0, 365)
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0104680232932308TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
+					ProductionDate:      yesterday.Format("2006-01-02"),
+					ExpirationDate:      expirationDate.Format("2006-01-02"),
 				}
 				return h.markingService.ReportUtilisation("water", req)
 			},
@@ -481,14 +482,15 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_beer_unit",
 			Description: "Отчёт о нанесении пива потребительского (GTIN: 03077972920060)",
 			Execute: func() (interface{}, error) {
-				executionTime := time.Now()
+				yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
+				expirationDate := yesterday.AddDate(0, 0, 365)
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0103077972920060TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
+					ProductionDate:      yesterday.Format("2006-01-02"),
+					ExpirationDate:      expirationDate.Format("2006-01-02"),
 					SeriesNumber:        "BEER2024",
 				}
 				return h.markingService.ReportUtilisation("beer", req)
@@ -498,14 +500,15 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_beer_group",
 			Description: "Отчёт о нанесении пива группового (GTIN: 13077972920067)",
 			Execute: func() (interface{}, error) {
-				executionTime := time.Now()
+				yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
+				expirationDate := yesterday.AddDate(0, 0, 365)
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0113077972920067TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
+					ProductionDate:      yesterday.Format("2006-01-02"),
+					ExpirationDate:      expirationDate.Format("2006-01-02"),
 					SeriesNumber:        "BEER-GROUP-2024",
 				}
 				return h.markingService.ReportUtilisation("beer", req)
@@ -515,14 +518,15 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_alcohol",
 			Description: "Отчёт о нанесении алкоголя (GTIN: 03077972920046)",
 			Execute: func() (interface{}, error) {
-				executionTime := time.Now()
+				yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
+				expirationDate := yesterday.AddDate(0, 0, 365)
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0103077972920046TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
+					ProductionDate:      yesterday.Format("2006-01-02"),
+					ExpirationDate:      expirationDate.Format("2006-01-02"),
 				}
 				return h.markingService.ReportUtilisation("alcohol", req)
 			},
@@ -531,14 +535,15 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_appliances",
 			Description: "Отчёт о нанесении бытовой техники (GTIN: 03077972920039)",
 			Execute: func() (interface{}, error) {
-				executionTime := time.Now()
+				yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
+				expirationDate := yesterday.AddDate(0, 0, 365)
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0103077972920039TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
+					ProductionDate:      yesterday.Format("2006-01-02"),
+					ExpirationDate:      expirationDate.Format("2006-01-02"),
 				}
 				return h.markingService.ReportUtilisation("appliances", req)
 			},
@@ -547,31 +552,33 @@ func (h *TestHandler) UtilisationsTestSuite(c *gin.Context) {
 			Name:        "utilisation_medicine",
 			Description: "Отчёт о нанесении лекарства (GTIN: 03077972920015)",
 			Execute: func() (interface{}, error) {
-				executionTime := time.Now()
+				yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
+				expirationDate := yesterday.AddDate(0, 0, 365)
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0103077972920015TestCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "PRODUCTION",
 					ManufacturerCountry: "UZ",
-					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
+					ProductionDate:      yesterday.Format("2006-01-02"),
+					ExpirationDate:      expirationDate.Format("2006-01-02"),
 					SeriesNumber:        "MED-SN-001",
 				}
-				return h.markingService.ReportUtilisation("medicine", req)
+				return h.markingService.ReportUtilisation("pharma", req)
 			},
 		},
 		{
 			Name:        "utilisation_import",
 			Description: "Отчёт о нанесении с типом ввода IMPORT (Россия)",
 			Execute: func() (interface{}, error) {
-				executionTime := time.Now()
+				yesterday := time.Now().Truncate(24*time.Hour).AddDate(0, 0, -1)
+				expirationDate := yesterday.AddDate(0, 0, 365)
 				req := models.UtilisationRequest{
 					Sntins:              []string{"0104680232932308ImportCode1UehU"},
 					BusinessPlaceId:     1,
 					ReleaseType:         "IMPORT",
 					ManufacturerCountry: "RU",
-					ProductionDate:      executionTime.Add(2 * time.Minute).Format("2006-01-02T15:04:05.000Z"),
-					ExpirationDate:      time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05.000Z"),
+					ProductionDate:      yesterday.Format("2006-01-02"),
+					ExpirationDate:      expirationDate.Format("2006-01-02"),
 				}
 				return h.markingService.ReportUtilisation("water", req)
 			},
