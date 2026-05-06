@@ -698,15 +698,8 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 	// Phase 3: Нанесение КИ для воды
 	if len(downloadedCodes["water"]) > 0 {
 		codes := downloadedCodes["water"]
-		// Обрезаем до 31 символа для воды
-		kiCodes := make([]string, len(codes))
-		for i, code := range codes {
-			if len(code) > 31 {
-				kiCodes[i] = code[:31]
-			} else {
-				kiCodes[i] = code
-			}
-		}
+		// Используем правильное обрезание с TruncateToKI (убирает GS символы и обрезает правильно)
+		kiCodes := util.TruncateToKIList(codes, "water")
 
 		reqBody, _ := json.Marshal(map[string]interface{}{"codes": kiCodes, "count": len(kiCodes)})
 		t0 := time.Now()
@@ -734,15 +727,8 @@ func (h *TestHandler) MarkingApplicationTestSuite(c *gin.Context) {
 	// Phase 4: Нанесение КИГУ для пива
 	if len(downloadedCodes["beer_kigu"]) > 0 {
 		codes := downloadedCodes["beer_kigu"]
-		// Обрезаем до 31 символа для групповой пиво упаковки
-		kiCodes := make([]string, len(codes))
-		for i, code := range codes {
-			if len(code) > 31 {
-				kiCodes[i] = code[:31]
-			} else {
-				kiCodes[i] = code
-			}
-		}
+		// Используем правильное обрезание с TruncateToKI для групповой пиво упаковки (КИ=31)
+		kiCodes := util.TruncateToKIList(codes, "beer_group")
 
 		reqBody, _ := json.Marshal(map[string]interface{}{"codes": kiCodes, "count": len(kiCodes)})
 		t0 := time.Now()

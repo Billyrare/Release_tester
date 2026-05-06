@@ -9,9 +9,10 @@ var kiLengths = map[string]int{
 	"tobacco":      21,
 	"alcohol":      25,
 	"beer":         25,
+	"beer_group":   31,  // групповая упаковка пива (КИГУ)
 	"appliances":   38,
-	"pharma":       31, // лекарственные препараты
-	"medicals":     31, // медицинские изделия
+	"pharma":       31,  // лекарственные препараты
+	"medicals":     31,  // медицинские изделия
 	"water":        31,
 	"vegetableoil": 31,
 	"bio":          31,
